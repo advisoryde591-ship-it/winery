@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>המרתף שלי</title>
+  <meta name="description" content="ניהול מלאי יין ושמפניות עם זיהוי בקבוקים מתמונה">
+  <meta name="theme-color" content="#4a1424">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="המרתף שלי">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="screen-title">המרתף שלי</h1>
+  </header>
+
+  <main id="app">
+    <!-- מרתף -->
+    <section id="view-cellar" class="view active">
+      <div class="stats" id="stats"></div>
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="חיפוש יין, יצרן, אזור…" autocomplete="off">
+        <select id="filter-type" aria-label="סוג">
+          <option value="">כל הסוגים</option>
+          <option value="red">אדום</option>
+          <option value="white">לבן</option>
+          <option value="rose">רוזה</option>
+          <option value="sparkling">מבעבע</option>
+          <option value="champagne">שמפניה</option>
+          <option value="dessert">קינוח</option>
+          <option value="fortified">מחוזק</option>
+        </select>
+        <select id="sort" aria-label="מיון">
+          <option value="drink">לפי מתי לשתות</option>
+          <option value="value">לפי שווי</option>
+          <option value="recent">נוספו לאחרונה</option>
+          <option value="name">לפי שם</option>
+        </select>
+      </div>
+      <ul id="wine-list" class="wine-list"></ul>
+      <p id="empty-cellar" class="empty" hidden>המרתף ריק. לחצו על "הוספה" וצלמו את הבקבוק הראשון 🍷</p>
+    </section>
+
+    <!-- הוספה -->
+    <section id="view-add" class="view">
+      <div class="card">
+        <p class="hint">צלמו את התווית הקדמית של הבקבוק. אפשר להוסיף גם צילום של התווית האחורית לזיהוי מדויק יותר.</p>
+        <div class="photo-row">
+          <label class="photo-slot" id="slot-front">
+            <input type="file" accept="image/*" capture="environment" id="photo-front" hidden>
+            <span>📷 תווית קדמית</span>
+          </label>
+          <label class="photo-slot" id="slot-back">
+            <input type="file" accept="image/*" capture="environment" id="photo-back" hidden>
+            <span>➕ תווית אחורית (רשות)</span>
+          </label>
+        </div>
+        <p class="hint small">רוצים לבחור תמונה מהגלריה? לחצו לחיצה ארוכה ← "ספריית תמונות".</p>
+        <button id="btn-analyze" class="btn primary" disabled>🔍 זהה את היין</button>
+        <button id="btn-manual" class="btn ghost">הוספה ידנית בלי AI</button>
+      </div>
+      <div id="analyze-status" class="status" hidden></div>
+    </section>
+
+    <!-- מה לשתות -->
+    <section id="view-sommelier" class="view">
+      <div class="quick-prompts" id="quick-prompts">
+        <button data-q="מה כדאי לפתוח הערב? תעדיף בקבוקים שבחלון השתייה שלהם או שעומדים לעבור את השיא.">מה לפתוח הערב?</button>
+        <button data-q="אני מכין סטייק על האש. איזה יין מהמרתף הכי מתאים?">ליד סטייק</button>
+        <button data-q="ארוחת דגים ופירות ים - מה להגיש?">ליד דגים</button>
+        <button data-q="יש לנו חגיגה. איזו שמפניה או מבעבע לפתוח?">לחגיגה 🥂</button>
+        <button data-q="אילו בקבוקים צריך לשתות בשנה הקרובה לפני שיעברו את השיא?">מה דחוף לשתות?</button>
+        <button data-q="תן לי ניתוח של המרתף: איזון בין סוגים, מה חסר ומה כדאי לקנות.">ניתוח המרתף</button>
+      </div>
+      <div id="chat" class="chat"></div>
+      <form id="chat-form" class="chat-form">
+        <input id="chat-input" type="text" placeholder="שאלו את הסומלייה…" autocomplete="off">
+        <button class="btn primary" type="submit">שלח</button>
+      </form>
+    </section>
+
+    <!-- קניות -->
+    <section id="view-shopping" class="view">
+      <div class="card">
+        <p class="hint">כשבקבוק נגמר (הכמות יורדת ל-0) הוא נכנס לכאן אוטומטית. בוחרים כמה להזמין ושולחים הזמנה לחנות בוואטסאפ או במייל בלחיצה אחת.</p>
+      </div>
+      <ul id="shopping-list" class="wine-list"></ul>
+      <p id="empty-shopping" class="empty" hidden>אין כרגע מה להזמין 👌</p>
+      <div id="order-actions" class="order-actions" hidden>
+        <button id="btn-order-wa" class="btn primary">📲 שליחת הזמנה בוואטסאפ</button>
+        <button id="btn-order-mail" class="btn">✉️ שליחת הזמנה במייל</button>
+        <button id="btn-order-copy" class="btn ghost">📋 העתקת ההזמנה</button>
+      </div>
+    </section>
+
+    <!-- הגדרות -->
+    <section id="view-settings" class="view">
+      <form id="settings-form" class="card form">
+        <h2>חיבור ל-AI</h2>
+        <label>מפתח Claude API
+          <input id="set-apikey" type="password" placeholder="sk-ant-…" autocomplete="off">
+        </label>
+        <p class="hint small">המפתח נשמר רק במכשיר שלכם. מקבלים מפתח ב-console.anthropic.com.</p>
+        <label class="row"><input id="set-websearch" type="checkbox" checked> חיפוש מחירים עדכניים ברשת בזמן זיהוי</label>
+        <label>מטבע
+          <select id="set-currency">
+            <option value="ILS">₪ שקל</option>
+            <option value="USD">$ דולר</option>
+            <option value="EUR">€ יורו</option>
+          </select>
+        </label>
+
+        <h2>הזמנות</h2>
+        <label>שם החנות / הספק
+          <input id="set-store-name" type="text" placeholder="למשל: היין של מוטי">
+        </label>
+        <label>וואטסאפ של החנות (עם קידומת מדינה)
+          <input id="set-store-phone" type="tel" placeholder="9725XXXXXXXX" inputmode="tel">
+        </label>
+        <label>מייל של החנות
+          <input id="set-store-email" type="email" placeholder="orders@store.co.il">
+        </label>
+        <label>שם המזמין
+          <input id="set-my-name" type="text">
+        </label>
+        <label>כמות ברירת מחדל להזמנה חוזרת
+          <input id="set-reorder-qty" type="number" min="1" value="1">
+        </label>
+        <button class="btn primary" type="submit">שמירה</button>
+        <span id="settings-saved" class="saved" hidden>נשמר ✓</span>
+      </form>
+
+      <div class="card form">
+        <h2>גיבוי</h2>
+        <button id="btn-export" class="btn">⬇️ ייצוא גיבוי (JSON)</button>
+        <label class="btn ghost">⬆️ ייבוא גיבוי
+          <input id="import-file" type="file" accept="application/json" hidden>
+        </label>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button data-view="cellar" class="active"><span>🍷</span>מרתף</button>
+    <button data-view="add"><span>📷</span>הוספה</button>
+    <button data-view="sommelier"><span>🤖</span>מה לשתות</button>
+    <button data-view="shopping"><span>🛒</span>קניות<i id="shop-badge" hidden></i></button>
+    <button data-view="settings"><span>⚙️</span>הגדרות</button>
+  </nav>
+
+  <!-- כרטיס יין -->
+  <dialog id="wine-dialog">
+    <form method="dialog" id="wine-form"></form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
