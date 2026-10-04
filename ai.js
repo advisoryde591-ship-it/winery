@@ -3,9 +3,10 @@
 import Anthropic from 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.131.0/+esm';
 
 const MODEL = 'claude-opus-5-5';
+// מצב מהיר לזיהוי תוויות: Sonnet בלי שלב חשיבה
+const FAST_MODEL = 'claude-sonnet-5-5';
 const WEB_SEARCH_TOOL = { type: 'web_search_20260209', name: 'web_search', max_uses: 4 };
 
-const CURRENCY_NAMES = { ILS: 'שקלים (ILS)', USD: 'דולרים (USD)', EUR: 'יורו (EUR)' };
 
 function client(settings) {
   if (!settings.apiKey) {
@@ -73,16 +74,17 @@ export async function testConnection(settings) {
   return response.model;
 }
 
-async function run(settings, { system, messages, tools, effort = 'medium' }) {
+async function run(settings, { system, messages, tools, effort = 'medium', fast = false }) {
   const anthropic = client(settings);
   const convo = [...messages];
   for (let i = 0; i < 4; i++) {
     const response = await create(anthropic, {
-      model: MODEL,
+      model: fast ? FAST_MODEL : MODEL,
       max_tokens: 16000,
       system,
       messages: convo,
       ...(tools ? { tools } : {}),
+      ...(fast ? { thinking: { type: 'between_tools' } } : {}),
       output_config: { effort },
     });
     if (response.stop_reason === 'refusal') {
@@ -110,43 +112,58 @@ function extractJson(text) {
   }
 }
 
-const IDENTIFY_SYSTEM = `אתה סומלייה מומחה ושמאי יין. מקבלים צילום של בקבוק יין או שמפניה ומחזירים כרטיס מידע מדויק.
-- זהה את היין מהתווית: יצרן, שם היין/הקוּבֶה, בציר, אזור, זנים.
-- אם משהו לא קריא על התווית - הסק מהידע שלך וציין זאת ב-confidence_note. אל תמציא בציר שלא רואים; אם לא ניתן לדעת, החזר null.
-- הערך שווי שוק נוכחי לבקבוק בודד (טווח נמוך-גבוה) לפי הידע שלך, כפי שקונים אותו בחנויות יין.
-- חלון שתייה: שנה מוקדמת ושנה מאוחרת לשתייה אידיאלית, ושנת שיא.
-- כל הטקסטים החופשיים בעברית. שמות יצרן/יין באותיות המקור.
-החזר אך ורק בלוק \`\`\`json אחד בפורמט:
+const IDENTIFY_SYSTEM = `You are an expert sommelier and wine appraiser for an Israeli wine collector. You get a photo of a wine or champagne bottle and return an accurate info card.
+
+LANGUAGE: every free-text value (country, region, grapes, price_note, tasting_notes, aromas, food_pairing, decant, confidence_note) MUST be written in Hebrew. Never answer in Russian, English or any other language. Only "name" and "producer" stay exactly as printed on the label (original language and script).
+
+- Identify the wine from the label: producer, wine/cuvée name, vintage, region, grapes.
+- If something is unreadable, infer it from your knowledge and say so in confidence_note. Never invent a vintage you cannot see; use null.
+- Estimate the current retail price of one bottle (low-high) from your knowledge.
+- Drinking window: first and last ideal year, and peak year.
+- Keep it short: tasting_notes 2-3 sentences, price_note up to 10 words, lists up to 5 items.
+- bottle_box: the tightest rectangle containing the whole bottle (capsule to base) in the FIRST image, as fractions (0-1) of image width/height, x,y = top-left corner. null if no whole bottle is visible. Always include it.
+
+Return only one \`\`\`json block:
 {
-  "name": "שם היין",
-  "producer": "יצרן",
+  "name": "...",
+  "producer": "...",
   "type": "red|white|rose|sparkling|champagne|dessert|fortified",
-  "vintage": 2019 או null (NV),
-  "country": "מדינה בעברית",
-  "region": "אזור / אפלסיון",
-  "grapes": ["זן"],
-  "alcohol": 13.5 או null,
-  "price_low": מספר,
-  "price_high": מספר,
-  "price_note": "על מה מבוסס המחיר, משפט אחד",
-  "tasting_notes": "2-3 משפטים על הטעם",
-  "aromas": ["ארומה"],
+  "vintage": 2019 or null,
+  "country": "צרפת",
+  "region": "שמפאן",
+  "grapes": ["שרדונה"],
+  "alcohol": 12.5 or null,
+  "price_low": number,
+  "price_high": number,
+  "price_note": "הערכה לפי מחירי חנויות",
+  "tasting_notes": "...",
+  "aromas": ["..."],
   "body": 1-5,
   "sweetness": 1-5,
   "acidity": 1-5,
   "tannins": 1-5,
-  "food_pairing": ["מנה"],
-  "drink_from": שנה,
-  "drink_until": שנה,
-  "peak": שנה,
-  "serving_temp": "למשל 16-18°C",
-  "decant": "המלצה על דקנטציה או null",
+  "food_pairing": ["..."],
+  "drink_from": year,
+  "drink_until": year,
+  "peak": year,
+  "serving_temp": "8-10°C",
+  "decant": "..." or null,
   "confidence": "high|medium|low",
-  "confidence_note": "מה היה קשה לזהות, אם בכלל",
+  "confidence_note": "...",
   "bottle_box": {"x": 0.31, "y": 0.04, "w": 0.38, "h": 0.93}
+}`;
+
+const CURRENCY_CODES = { ILS: 'Israeli shekels (ILS)', USD: 'US dollars (USD)', EUR: 'euros (EUR)' };
+const HEBREW_FIELDS = ['country', 'region', 'price_note', 'tasting_notes', 'confidence_note', 'decant'];
+
+// תשובה שנכתבה בשפה אחרת (למשל רוסית) במקום בעברית
+function notHebrew(info) {
+  const text = HEBREW_FIELDS.map((k) => info[k] ?? '').join(' ')
+    + [info.aromas, info.food_pairing, info.grapes].flat().filter(Boolean).join(' ');
+  const hebrew = (text.match(/[֐-׿]/g) || []).length;
+  const latinOrCyrillic = (text.match(/[A-Za-zЀ-ӿ]/g) || []).length;
+  return /[Ѐ-ӿ]/.test(text) || latinOrCyrillic > hebrew;
 }
-bottle_box: המלבן ההדוק ביותר שמכיל את הבקבוק כולו (מהפקק עד התחתית) בתמונה הראשונה, כשברים מרוחב/גובה התמונה (0 עד 1), x,y = הפינה השמאלית-עליונה. אם אין בקבוק שלם בתמונה, null.
-`;
 
 export async function identifyWine(images, settings) {
   const year = new Date().getFullYear();
@@ -157,26 +174,32 @@ export async function identifyWine(images, settings) {
     })),
     {
       type: 'text',
-      text: `זהה את הבקבוק. השנה הנוכחית ${year}. תן מחירים ב${CURRENCY_NAMES[settings.currency] || settings.currency}.`,
+      text: `Identify this bottle. Current year: ${year}. Prices in ${CURRENCY_CODES[settings.currency] || settings.currency}. Write all descriptive text in Hebrew (עברית).`,
     },
   ];
-  // זיהוי מהיר בלי חיפוש ברשת; המחיר העדכני מגיע אחר כך ב-refreshPrice
-  const text = await run(settings, {
-    system: IDENTIFY_SYSTEM,
-    messages: [{ role: 'user', content }],
-    effort: 'low',
-  });
-  return extractJson(text);
+  // זיהוי בלי חיפוש ברשת; המחיר העדכני מגיע אחר כך ב-refreshPrice
+  const messages = [{ role: 'user', content }];
+  const ask = () => run(settings, { system: IDENTIFY_SYSTEM, messages, effort: 'low', fast: settings.fastMode });
+  const text = await ask();
+  const info = extractJson(text);
+  if (!notHebrew(info)) return info;
+  // נכתב בשפה אחרת: מבקשים שוב, הפעם עם תזכורת מפורשת
+  messages.push(
+    { role: 'assistant', content: text },
+    { role: 'user', content: 'The descriptive fields are not in Hebrew. Return the same JSON with every free-text value translated to Hebrew. Keep name and producer as on the label.' },
+  );
+  return extractJson(await ask());
 }
 
-const PRICE_SYSTEM = `אתה שמאי יין. חפש ברשת את מחיר המדף הנוכחי של בקבוק בודד מהיין המבוקש, בחנויות יין (עדיפות לחנויות בישראל).
-החזר אך ורק בלוק \`\`\`json אחד: {"price_low": מספר, "price_high": מספר, "price_note": "משפט קצר בעברית: מאילו חנויות המחיר"}`;
+const PRICE_SYSTEM = `You are a wine appraiser. Search the web for the current retail shelf price of one bottle of the requested wine (prefer shops in Israel, then Europe).
+Return only one \`\`\`json block: {"price_low": number, "price_high": number, "price_note": "<up to 10 words IN HEBREW naming the shops>"}
+price_note must be in Hebrew, never Russian or English.`;
 
 export async function refreshPrice(wine, settings) {
   const label = [wine.producer, wine.name, wine.vintage ?? 'NV'].filter(Boolean).join(' ');
   const text = await run(settings, {
     system: PRICE_SYSTEM,
-    messages: [{ role: 'user', content: `${label}. מחירים ב${CURRENCY_NAMES[settings.currency] || settings.currency}.` }],
+    messages: [{ role: 'user', content: `${label}. Prices in ${CURRENCY_CODES[settings.currency] || settings.currency}.` }],
     tools: [{ ...WEB_SEARCH_TOOL, max_uses: 3 }],
     effort: 'low',
   });
@@ -184,7 +207,8 @@ export async function refreshPrice(wine, settings) {
   if (typeof price_low !== 'number' && typeof price_high !== 'number') {
     throw new Error('לא נמצא מחיר ברשת');
   }
-  return { price_low, price_high, price_note };
+  const note = /[\u0590-\u05FF]/.test(price_note ?? '') && !/[\u0400-\u04FF]/.test(price_note) ? price_note : 'מחיר עדכני מחנויות ברשת';
+  return { price_low, price_high, price_note: note };
 }
 
 function inventoryForPrompt(wines) {
@@ -208,7 +232,8 @@ function inventoryForPrompt(wines) {
 
 export async function askSommelier(history, wines, settings) {
   const today = new Date().toLocaleDateString('he-IL', { year: 'numeric', month: 'long', day: 'numeric' });
-  const system = `אתה הסומלייה האישי של בעל המרתף. ענה בעברית, בחום ובקצרה (עד 8 שורות אלא אם התבקש ניתוח).
+  const system = `Always answer in Hebrew only (never Russian or English).
+אתה הסומלייה האישי של בעל המרתף. ענה בעברית, בחום ובקצרה (עד 8 שורות אלא אם התבקש ניתוח).
 המלץ רק על בקבוקים שקיימים במלאי למטה, ציין את שמם המלא ובציר, והסבר במשפט למה. אם אין במלאי משהו מתאים, אמור זאת והצע מה לקנות.
 התחשב בחלון השתייה: עדיפות לבקבוקים בשיא או כאלה שעומדים לעבור אותו. היום ${today}.
 אל תשתמש ב-Markdown כבד (בלי טבלאות). רשימות קצרות עם מקפים זה בסדר.
@@ -220,7 +245,8 @@ ${JSON.stringify(inventoryForPrompt(wines))}`;
 
 export async function findPrices(wine, settings) {
   const label = [wine.producer, wine.name, wine.vintage].filter(Boolean).join(' ');
-  const system = `אתה עוזר קניות ליין. חפש ברשת היכן אפשר לקנות את היין המבוקש היום, עדיפות לחנויות שמשלוחות לישראל.
+  const system = `Always answer in Hebrew only (never Russian or English).
+אתה עוזר קניות ליין. חפש ברשת היכן אפשר לקנות את היין המבוקש היום, עדיפות לחנויות שמשלוחות לישראל.
 החזר בעברית רשימה קצרה: שם החנות, מחיר, קישור. בסוף - אם היין לא זמין, הצע 2 חלופות דומות במחיר דומה. בלי טבלאות.`;
   return run(settings, {
     system,

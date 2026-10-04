@@ -33,6 +33,7 @@ const SETTINGS_KEY = 'cellar.settings';
 const DEFAULT_SETTINGS = {
   apiKey: '',
   webSearch: true,
+  fastMode: true,
   currency: 'ILS',
   storeName: '',
   storePhone: '',

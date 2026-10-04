@@ -599,6 +599,7 @@ const SETTING_INPUTS = {
 function fillSettings() {
   for (const [key, sel] of Object.entries(SETTING_INPUTS)) $(sel).value = settings[key] ?? '';
   $('#set-websearch').checked = settings.webSearch;
+  $('#set-fast').checked = settings.fastMode;
 }
 
 $('#settings-form').addEventListener('submit', (e) => {
@@ -606,6 +607,7 @@ $('#settings-form').addEventListener('submit', (e) => {
   for (const [key, sel] of Object.entries(SETTING_INPUTS)) settings[key] = $(sel).value.trim();
   settings.reorderQty = Math.max(1, Number(settings.reorderQty) || 1);
   settings.webSearch = $('#set-websearch').checked;
+  settings.fastMode = $('#set-fast').checked;
   saveSettings(settings);
   const saved = $('#settings-saved');
   saved.hidden = false;
