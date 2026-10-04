@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // כל מרתף משותף נמצא תחת קוד אקראי ארוך. רק מי שיודע את הקוד יכול לקרוא ולכתוב.
+    // אין הרשאה לרשום את כל המרתפים, כך שאי אפשר לנחש או לגלות קודים של אחרים.
+    match /cellars/{cellar}/wines/{wine} {
+      allow read, write: if cellar.size() >= 20;
+    }
+  }
+}

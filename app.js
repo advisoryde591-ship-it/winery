@@ -1,9 +1,10 @@
 import {
-  getAllWines, putWine, deleteWine, clearWines, loadSettings, saveSettings, listBackups, saveBackup, restoreBackup,
-} from './db.js?v=13';
+  getAllWines, putWine as dbPut, deleteWine as dbDelete, loadSettings, saveSettings, listBackups, saveBackup, restoreBackup,
+} from './db.js?v=14';
+import * as sync from './sync.js?v=14';
 import {
   GROUPS, groupOf, flag, findDuplicate, mergeInto, mergeDuplicates, rankCompare, matchesSearch, appellationOf,
-} from './cellar.js?v=13';
+} from './cellar.js?v=14';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -24,6 +25,19 @@ let wines = [];
 let settings = loadSettings();
 let chatHistory = [];
 const photos = { front: null, back: null };
+
+// ---------- שמירה (בטלפון, ובמרתף משותף גם בענן) ----------
+
+async function putWine(wine) {
+  wine.updatedAt = Date.now();
+  await dbPut(wine);
+  sync.pushWine(wine).catch(() => setSyncStatus('השינוי יסונכרן כשיחזור החיבור', false));
+}
+
+async function deleteWine(id) {
+  await dbDelete(id);
+  sync.removeWine(id).catch(() => setSyncStatus('המחיקה תסונכרן כשיחזור החיבור', false));
+}
 
 // ---------- עזרים ----------
 
@@ -269,6 +283,7 @@ function showView(name) {
   window.scrollTo(0, 0);
   if (name === 'shopping') renderShopping();
   if (name === 'settings') {
+    renderShared();
     $('#rates-info').textContent = ratesText();
     renderBackups();
     renderStorageInfo();
@@ -498,7 +513,7 @@ $('#btn-analyze').addEventListener('click', async () => {
   status.innerHTML = '<div class="spinner"></div>מזהה את היין… בדרך כלל 10–20 שניות.';
   $('#btn-analyze').disabled = true;
   try {
-    const { identifyWine } = await import('./ai.js?v=13');
+    const { identifyWine } = await import('./ai.js?v=14');
     const images = [photos.front, photos.back].filter(Boolean).map((p) => p.ai);
     const info = await identifyWine(images, settings);
     const { bottle_box: box, ...details } = info;
@@ -519,7 +534,7 @@ const pricing = new Set();
 async function updatePriceInBackground(wine) {
   pricing.add(wine.id);
   try {
-    const { refreshPrice } = await import('./ai.js?v=13');
+    const { refreshPrice } = await import('./ai.js?v=14');
     Object.assign(wine, await refreshPrice(wine, settings), { currency: settings.currency });
     if (wines.includes(wine)) {
       await putWine(wine);
@@ -750,7 +765,7 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     out.textContent = 'מחפש ברשת…';
     e.target.disabled = true;
     try {
-      const { findPrices } = await import('./ai.js?v=13');
+      const { findPrices } = await import('./ai.js?v=14');
       out.innerHTML = linkify(await findPrices(wine, settings));
     } catch (err) {
       out.textContent = `⚠️ ${err.message}`;
@@ -788,7 +803,7 @@ async function ask(question) {
   chatHistory.push({ role: 'user', content: question });
   const pending = addMsg('ai loading', 'חושב… 🍷');
   try {
-    const { askSommelier } = await import('./ai.js?v=13');
+    const { askSommelier } = await import('./ai.js?v=14');
     const answer = await askSommelier(chatHistory, wines, settings);
     chatHistory.push({ role: 'assistant', content: answer });
     pending.classList.remove('loading');
@@ -929,7 +944,7 @@ $('#btn-test').addEventListener('click', async (e) => {
   out.textContent = 'בודק…';
   e.target.disabled = true;
   try {
-    const { testConnection } = await import('./ai.js?v=13');
+    const { testConnection } = await import('./ai.js?v=14');
     await testConnection({ ...settings, apiKey: key });
     settings.apiKey = key;
     saveSettings(settings);
@@ -1003,6 +1018,138 @@ function renderTransferBanner() {
   $('#transfer-import').closest('.transfer').hidden = !standalone || wines.length > 0;
 }
 
+// ---------- מרתף משותף ----------
+
+let syncState = { text: '', ok: null };
+
+function setSyncStatus(text, ok) {
+  syncState = { text, ok };
+  const el = $('#sync-status');
+  if (el) {
+    el.textContent = text;
+    el.className = `sync-status ${ok === true ? 'ok' : ok === false ? 'bad' : ''}`;
+  }
+}
+
+// שינויים שהגיעו מטלפון אחר
+async function applyRemote({ upsert, remove }) {
+  for (const remote of upsert) {
+    const mine = wines.find((w) => w.id === remote.id);
+    const merged = { ...remote };
+    // שדות שנשמרים רק בטלפון הזה
+    if (mine?.photoFull) merged.photoFull = mine.photoFull;
+    if (mine?.photoOriginal && mine.photo === remote.photo) merged.photoOriginal = mine.photoOriginal;
+    await dbPut(merged);
+    if (mine) Object.keys(mine).forEach((k) => delete mine[k]);
+    if (mine) Object.assign(mine, merged);
+    else wines.push(merged);
+  }
+  for (const id of remove) {
+    await dbDelete(id);
+    wines = wines.filter((w) => w.id !== id);
+  }
+  renderCellar();
+}
+
+function startSync() {
+  sync.start(() => wines, applyRemote, setSyncStatus).catch((err) => setSyncStatus(`שגיאת סנכרון: ${err.message}`, false));
+}
+
+function renderShared() {
+  const box = $('#shared-box');
+  if (!sync.syncConfigured()) {
+    box.innerHTML = '<p class="hint small">המרתף המשותף עוד לא הופעל. צריך לחבר פרויקט Firebase (פעם אחת).</p>';
+    return;
+  }
+  const code = sync.getCode();
+  if (code) {
+    box.innerHTML = `
+      <p class="hint small">המרתף הזה משותף. כל מי שמחובר עם אותו קוד רואה את אותם יינות, וכל שינוי מתעדכן אצל כולם.</p>
+      <div class="share-code" dir="ltr">${sync.formatCode(code)}</div>
+      <p id="sync-status" class="sync-status"></p>
+      <button type="button" class="btn primary" id="btn-share-code">📤 שליחת הקוד לאשתי / לבן משפחה</button>
+      <button type="button" class="btn ghost danger" id="btn-leave">ניתוק מהמרתף המשותף</button>`;
+    setSyncStatus(syncState.text || 'מתחבר…', syncState.ok);
+    $('#btn-share-code').onclick = () => shareCode(code);
+    $('#btn-leave').onclick = () => {
+      if (!confirm('לנתק את הטלפון הזה מהמרתף המשותף? היינות יישארו בטלפון, אבל שינויים כבר לא יסונכרנו.')) return;
+      sync.leave();
+      setSyncStatus('', null);
+      renderShared();
+    };
+    return;
+  }
+  box.innerHTML = `
+    <p class="hint small">מרתף משותף מאפשר לכמה טלפונים לראות ולעדכן את אותו מרתף.</p>
+    <button type="button" class="btn primary" id="btn-create-shared">➕ יצירת מרתף משותף מהיינות שלי</button>
+    <p class="hint small" style="margin-top:14px">קיבלת קוד מרתף? הדביקו אותו כאן:</p>
+    <input id="join-code" type="text" dir="ltr" autocomplete="off" autocapitalize="off" placeholder="xxxx-xxxx-xxxx-xxxx-xxxx-xxxx">
+    <button type="button" class="btn" id="btn-join">🔗 הצטרפות למרתף</button>
+    <p id="sync-status" class="sync-status"></p>`;
+  $('#btn-create-shared').onclick = async (e) => {
+    e.target.disabled = true;
+    setSyncStatus('מעלה את המרתף…', null);
+    try {
+      await sync.create(wines);
+      startSync();
+      renderShared();
+      toast('✓ נוצר מרתף משותף. שלחו את הקוד לבני הבית');
+    } catch (err) {
+      setSyncStatus(`לא הצלחתי ליצור: ${err.message}`, false);
+      e.target.disabled = false;
+    }
+  };
+  $('#btn-join').onclick = async (e) => {
+    const code = sync.cleanCode($('#join-code').value);
+    if (code.length < 20) {
+      setSyncStatus('הקוד קצר מדי. העתיקו את כל הקוד שקיבלתם.', false);
+      return;
+    }
+    e.target.disabled = true;
+    setSyncStatus('מתחבר…', null);
+    try {
+      const n = await sync.join(code);
+      if (n === 0 && !confirm('המרתף עם הקוד הזה ריק. להצטרף בכל זאת?')) {
+        sync.leave();
+        e.target.disabled = false;
+        setSyncStatus('', null);
+        return;
+      }
+      await saveBackup(wines, 'לפני הצטרפות למרתף משותף');
+      startSync();
+      renderShared();
+      toast(`✓ הצטרפת למרתף המשותף (${n} יינות)`);
+    } catch (err) {
+      sync.leave();
+      setSyncStatus(err.code === 'permission-denied' ? 'הקוד לא נכון או שאין הרשאה.' : `לא הצלחתי להתחבר: ${err.message}`, false);
+      e.target.disabled = false;
+    }
+  };
+}
+
+async function shareCode(code) {
+  const url = location.href.split('#')[0];
+  const text = `הצטרפות למרתף היין שלנו 🍷
+1. פתחי ב-Safari: ${url}
+2. שיתוף ← "הוסף למסך הבית", ופתחי את האפליקציה מהאייקון
+3. הגדרות ← מרתף משותף ← הדביקי את הקוד:
+${sync.formatCode(code)}`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ text });
+      return;
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('ההודעה עם הקוד הועתקה 📋');
+  } catch {
+    toast(`הקוד: ${sync.formatCode(code)}`, 8000);
+  }
+}
+
 // ---------- הפעלה ----------
 
 // איחוד יינות כפולים שכבר שמורים (נוספו פעמיים כשורות נפרדות)
@@ -1020,7 +1167,7 @@ async function mergeExistingDuplicates() {
 // השלמת דגל, אזור וציון ליינות ישנים, ברקע ואחד אחד
 async function enrichOldWines() {
   if (!settings.apiKey) return;
-  const { enrichWine } = await import('./ai.js?v=13');
+  const { enrichWine } = await import('./ai.js?v=14');
   for (const wine of wines.filter((w) => !w.enrichedAt)) {
     try {
       const { country_he, region_he, ...extra } = await enrichWine(wine, settings);
@@ -1080,6 +1227,7 @@ $('#backup-list').addEventListener('click', async (e) => {
   if (!confirm('לשחזר את המרתף לגיבוי הזה? המצב הנוכחי יישמר קודם כגיבוי נוסף.')) return;
   await saveBackup(wines, 'לפני שחזור');
   wines = await restoreBackup(id);
+  sync.replaceAll(wines).catch(() => {});
   Object.assign(cellarView, { group: null, region: null });
   renderCellar();
   renderBackups();
@@ -1096,6 +1244,7 @@ async function init() {
   // מבקשים מהמערכת לא למחוק את המידע כשחסר מקום
   navigator.storage?.persist?.().catch(() => {});
   refreshRates();
+  startSync();
   renderBackups();
   enrichOldWines();
   if (!settings.apiKey) {
