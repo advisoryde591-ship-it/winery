@@ -79,7 +79,7 @@ async function processImage(file) {
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       return canvas.toDataURL('image/jpeg', quality);
     };
-    return { ai: draw(1568, 0.85).split(',')[1], thumb: draw(480, 0.8) };
+    return { ai: draw(1280, 0.82).split(',')[1], thumb: draw(480, 0.8) };
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -224,7 +224,7 @@ function resetAddForm() {
 $('#btn-analyze').addEventListener('click', async () => {
   const status = $('#analyze-status');
   status.hidden = false;
-  status.innerHTML = `<div class="spinner"></div>מזהה את היין${settings.webSearch ? ' ובודק מחירים ברשת' : ''}… זה יכול לקחת עד דקה.`;
+  status.innerHTML = '<div class="spinner"></div>מזהה את היין… בדרך כלל 10–20 שניות.';
   $('#btn-analyze').disabled = true;
   try {
     const { identifyWine } = await import('./ai.js');
@@ -232,12 +232,50 @@ $('#btn-analyze').addEventListener('click', async () => {
     const info = await identifyWine(images, settings);
     const wine = newWine({ ...info, photo: photos.front.thumb, ai: true });
     resetAddForm();
+    if (settings.webSearch) updatePriceInBackground(wine);
     openWine(wine, { isNew: true });
   } catch (err) {
     status.innerHTML = `⚠️ ${esc(err.message)}`;
     $('#btn-analyze').disabled = false;
   }
 });
+
+// מחיר עדכני מהרשת: רץ ברקע אחרי הזיהוי ומעדכן את הכרטיס כשהוא מגיע
+const pricing = new Set();
+
+async function updatePriceInBackground(wine) {
+  pricing.add(wine.id);
+  try {
+    const { refreshPrice } = await import('./ai.js');
+    Object.assign(wine, await refreshPrice(wine, settings), { currency: settings.currency });
+    if (wines.includes(wine)) {
+      await putWine(wine);
+      renderCellar();
+    }
+  } catch {
+    // נשארים עם ההערכה מהזיהוי
+  } finally {
+    pricing.delete(wine.id);
+    refreshPriceBlock(wine);
+  }
+}
+
+function priceBlock(wine) {
+  const mid = midPrice(wine);
+  return `
+    ${mid ? `<p class="price" style="font-size:1.3rem;margin:8px 0 2px"><span dir="ltr">${money(wine.price_low, wine.currency)}–${money(wine.price_high, wine.currency)}</span></p>` : ''}
+    ${pricing.has(wine.id) ? '<div class="confidence">🔄 בודק מחיר עדכני ברשת…</div>' : ''}
+    ${wine.price_note && !pricing.has(wine.id) ? `<div class="confidence">${esc(wine.price_note)}</div>` : ''}`;
+}
+
+function refreshPriceBlock(wine) {
+  const form = $('#wine-form');
+  if (!$('#wine-dialog').open || form.dataset.id !== wine.id) return;
+  $('#price-block', form).innerHTML = priceBlock(wine);
+  // גם שדות העריכה, כדי ש"שמירה" לא תדרוס את המחיר החדש
+  form.elements.price_low.value = wine.price_low ?? '';
+  form.elements.price_high.value = wine.price_high ?? '';
+}
 
 $('#btn-manual').addEventListener('click', () => {
   openWine(newWine({ photo: photos.front?.thumb ?? null }), { isNew: true, edit: true });
@@ -277,7 +315,6 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
   const dlg = $('#wine-dialog');
   const form = $('#wine-form');
   const status = drinkStatus(wine);
-  const mid = midPrice(wine);
   const typeOptions = Object.entries(TYPE_LABELS)
     .map(([v, l]) => `<option value="${v}" ${wine.type === v ? 'selected' : ''}>${l}</option>`).join('');
   const fieldInputs = FIELDS.map(([key, label, kind]) => {
@@ -298,8 +335,7 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
           <h2>${esc(wineTitle(wine))}</h2>
           <div class="meta">${esc([wine.vintage ?? 'NV', wine.region, wine.country].filter(Boolean).join(' · '))}</div>
           ${wine.grapes?.length ? `<div class="meta">${esc(wine.grapes.join(', '))}</div>` : ''}
-          ${mid ? `<p class="price" style="font-size:1.3rem;margin:8px 0 2px"><span dir="ltr">${money(wine.price_low, wine.currency)}–${money(wine.price_high, wine.currency)}</span></p>` : ''}
-          ${wine.price_note ? `<div class="confidence">${esc(wine.price_note)}</div>` : ''}
+          <div id="price-block">${priceBlock(wine)}</div>
           ${status ? `<div class="tags"><span class="tag ${status.cls}">${status.label}</span></div>` : ''}
         </div>
       </div>
@@ -339,6 +375,8 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
       <div id="prices-out" class="msg ai" style="max-width:100%;margin-top:10px" hidden></div>
       ${isNew ? '' : '<button type="button" class="btn ghost danger" id="btn-delete">🗑️ מחיקה מהמרתף</button>'}
     </div>`;
+
+  form.dataset.id = wine.id;
 
   form.onsubmit = async (e) => {
     const action = e.submitter?.value;

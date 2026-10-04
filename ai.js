@@ -113,7 +113,7 @@ function extractJson(text) {
 const IDENTIFY_SYSTEM = `אתה סומלייה מומחה ושמאי יין. מקבלים צילום של בקבוק יין או שמפניה ומחזירים כרטיס מידע מדויק.
 - זהה את היין מהתווית: יצרן, שם היין/הקוּבֶה, בציר, אזור, זנים.
 - אם משהו לא קריא על התווית - הסק מהידע שלך וציין זאת ב-confidence_note. אל תמציא בציר שלא רואים; אם לא ניתן לדעת, החזר null.
-- הערך שווי שוק נוכחי לבקבוק בודד (טווח נמוך-גבוה), כפי שקונים אותו בחנויות יין. אם יש לך כלי חיפוש, השתמש בו כדי לאמת מחירים עדכניים.
+- הערך שווי שוק נוכחי לבקבוק בודד (טווח נמוך-גבוה) לפי הידע שלך, כפי שקונים אותו בחנויות יין.
 - חלון שתייה: שנה מוקדמת ושנה מאוחרת לשתייה אידיאלית, ושנת שיא.
 - כל הטקסטים החופשיים בעברית. שמות יצרן/יין באותיות המקור.
 החזר אך ורק בלוק \`\`\`json אחד בפורמט:
@@ -157,12 +157,31 @@ export async function identifyWine(images, settings) {
       text: `זהה את הבקבוק. השנה הנוכחית ${year}. תן מחירים ב${CURRENCY_NAMES[settings.currency] || settings.currency}.`,
     },
   ];
+  // זיהוי מהיר בלי חיפוש ברשת; המחיר העדכני מגיע אחר כך ב-refreshPrice
   const text = await run(settings, {
     system: IDENTIFY_SYSTEM,
     messages: [{ role: 'user', content }],
-    tools: settings.webSearch ? [WEB_SEARCH_TOOL] : undefined,
+    effort: 'low',
   });
   return extractJson(text);
+}
+
+const PRICE_SYSTEM = `אתה שמאי יין. חפש ברשת את מחיר המדף הנוכחי של בקבוק בודד מהיין המבוקש, בחנויות יין (עדיפות לחנויות בישראל).
+החזר אך ורק בלוק \`\`\`json אחד: {"price_low": מספר, "price_high": מספר, "price_note": "משפט קצר בעברית: מאילו חנויות המחיר"}`;
+
+export async function refreshPrice(wine, settings) {
+  const label = [wine.producer, wine.name, wine.vintage ?? 'NV'].filter(Boolean).join(' ');
+  const text = await run(settings, {
+    system: PRICE_SYSTEM,
+    messages: [{ role: 'user', content: `${label}. מחירים ב${CURRENCY_NAMES[settings.currency] || settings.currency}.` }],
+    tools: [{ ...WEB_SEARCH_TOOL, max_uses: 3 }],
+    effort: 'low',
+  });
+  const { price_low, price_high, price_note } = extractJson(text);
+  if (typeof price_low !== 'number' && typeof price_high !== 'number') {
+    throw new Error('לא נמצא מחיר ברשת');
+  }
+  return { price_low, price_high, price_note };
 }
 
 function inventoryForPrompt(wines) {
