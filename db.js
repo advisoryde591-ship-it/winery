@@ -68,6 +68,8 @@ const DEFAULT_SETTINGS = {
   webSearch: true,
   fastMode: true,
   currency: 'ILS',
+  shopCountry: 'IL',
+  shopCity: '',
   storeName: '',
   storePhone: '',
   storeEmail: '',

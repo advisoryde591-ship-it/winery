@@ -7,6 +7,28 @@ const MODEL = 'claude-opus-5-5';
 const FAST_MODEL = 'claude-sonnet-5-5';
 const WEB_SEARCH_TOOL = { type: 'web_search_20260209', name: 'web_search', max_uses: 4 };
 
+// איפה המשתמש קונה יין (מההגדרות) - כדי שהחיפושים ימצאו חנויות ומחירים שם
+const COUNTRIES = {
+  IL: ['ישראל', 'Israel'], CY: ['קפריסין', 'Cyprus'], GR: ['יוון', 'Greece'], GB: ['בריטניה', 'United Kingdom'],
+  US: ['ארצות הברית', 'United States'], FR: ['צרפת', 'France'], IT: ['איטליה', 'Italy'], DE: ['גרמניה', 'Germany'],
+};
+
+function shopPlace(settings) {
+  const code = COUNTRIES[settings.shopCountry] ? settings.shopCountry : 'IL';
+  const [he, en] = COUNTRIES[code];
+  const city = (settings.shopCity || '').trim();
+  return { code, he, en, city, label: city ? `${city}, ${en}` : en };
+}
+
+function webSearch(settings, maxUses = 4) {
+  const place = shopPlace(settings);
+  return {
+    ...WEB_SEARCH_TOOL,
+    max_uses: maxUses,
+    user_location: { type: 'approximate', country: place.code, ...(place.city ? { city: place.city } : {}) },
+  };
+}
+
 
 function client(settings) {
   if (!settings.apiKey) {
@@ -112,7 +134,7 @@ function extractJson(text) {
   }
 }
 
-const IDENTIFY_SYSTEM = `You are an expert sommelier and wine appraiser for an Israeli wine collector. You get a photo of a wine or champagne bottle and return an accurate info card.
+const IDENTIFY_SYSTEM = `You are an expert sommelier and wine appraiser for a private wine collector. You get a photo of a wine or champagne bottle and return an accurate info card.
 
 LANGUAGE: every free-text value (country, region, grapes, price_note, tasting_notes, aromas, food_pairing, decant, confidence_note) MUST be written in Hebrew. Never answer in Russian, English or any other language. Only "name" and "producer" stay exactly as printed on the label (original language and script).
 
@@ -200,16 +222,16 @@ export async function identifyWine(images, settings) {
   return extractJson(await ask());
 }
 
-const PRICE_SYSTEM = `You are a wine appraiser. Search the web for the current retail shelf price of one bottle of the requested wine (prefer shops in Israel, then Europe).
+const priceSystem = (place) => `You are a wine appraiser. Search the web for the current retail shelf price of one bottle of the requested wine. The collector buys in ${place.label}: prefer shops in ${place.en} (or that deliver there), then the rest of Europe.
 Return only one \`\`\`json block: {"price_low": number, "price_high": number, "price_note": "<up to 10 words IN HEBREW naming the shops>"}
 price_note must be in Hebrew, never Russian or English.`;
 
 export async function refreshPrice(wine, settings) {
   const label = [wine.producer, wine.name, wine.vintage ?? 'NV'].filter(Boolean).join(' ');
   const text = await run(settings, {
-    system: PRICE_SYSTEM,
+    system: priceSystem(shopPlace(settings)),
     messages: [{ role: 'user', content: `${label}. Prices in ${CURRENCY_CODES[settings.currency] || settings.currency}.` }],
-    tools: [{ ...WEB_SEARCH_TOOL, max_uses: 3 }],
+    tools: [webSearch(settings, 3)],
     effort: 'low',
   });
   const { price_low, price_high, price_note } = extractJson(text);
@@ -263,25 +285,45 @@ function inventoryForPrompt(wines) {
 
 export async function askSommelier(history, wines, settings) {
   const today = new Date().toLocaleDateString('he-IL', { year: 'numeric', month: 'long', day: 'numeric' });
+  const place = shopPlace(settings);
   const system = `Always answer in Hebrew only (never Russian or English).
 אתה הסומלייה האישי של בעל המרתף. ענה בעברית, בחום ובקצרה (עד 8 שורות אלא אם התבקש ניתוח).
 המלץ רק על בקבוקים שקיימים במלאי למטה, ציין את שמם המלא ובציר, והסבר במשפט למה. אם אין במלאי משהו מתאים, אמור זאת והצע מה לקנות.
 התחשב בחלון השתייה: עדיפות לבקבוקים בשיא או כאלה שעומדים לעבור אותו. היום ${today}.
+בעל המרתף קונה יין ב${place.city ? `${place.city}, ` : ''}${place.he}.
+יש לך כלי חיפוש ברשת. כשמבקשים חנויות, מחירים, זמינות או כל מידע עדכני - חפש ברשת ותן תשובה עם שמות, טלפונים וקישורים אמיתיים. אל תגיד שאין לך גישה לאינטרנט.
 אל תשתמש ב-Markdown כבד (בלי טבלאות). רשימות קצרות עם מקפים זה בסדר.
 
 המלאי הנוכחי (JSON):
 ${JSON.stringify(inventoryForPrompt(wines))}`;
-  return run(settings, { system, messages: history });
+  return run(settings, { system, messages: history, tools: [webSearch(settings, 5)] });
 }
 
 export async function findPrices(wine, settings) {
   const label = [wine.producer, wine.name, wine.vintage].filter(Boolean).join(' ');
+  const place = shopPlace(settings);
   const system = `Always answer in Hebrew only (never Russian or English).
-אתה עוזר קניות ליין. חפש ברשת היכן אפשר לקנות את היין המבוקש היום, עדיפות לחנויות שמשלוחות לישראל.
+אתה עוזר קניות ליין. חפש ברשת היכן אפשר לקנות את היין המבוקש היום ב${place.city ? `${place.city}, ` : ''}${place.he} (חנויות מקומיות או שמשלוחות לשם).
 החזר בעברית רשימה קצרה: שם החנות, מחיר, קישור. בסוף - אם היין לא זמין, הצע 2 חלופות דומות במחיר דומה. בלי טבלאות.`;
   return run(settings, {
     system,
     messages: [{ role: 'user', content: `איפה לקנות: ${label}. מטבע מועדף: ${settings.currency}.` }],
-    tools: [WEB_SEARCH_TOOL],
+    tools: [webSearch(settings)],
   });
+}
+
+const SHOPS_SYSTEM = `You help a wine collector find wine shops to order from. Search the web for real, currently operating wine shops / wine merchants in the given place (include online shops that deliver there). Prefer ones with a good selection of fine wine and champagne and a way to order by WhatsApp, phone or email.
+Return only one \`\`\`json block: {"shops": [{"name": "...", "city": "...", "phone": "+357...", "whatsapp": "+357... or null", "email": "... or null", "website": "https://...", "note": "<one short sentence IN HEBREW: what they are good for, delivery>"}]}
+Up to 8 shops. Only include contact details you actually found; use null otherwise. note must be in Hebrew.`;
+
+// חיפוש חנויות יין באזור של המשתמש, לבחירת החנות להזמנות
+export async function findShops(settings) {
+  const place = shopPlace(settings);
+  const text = await run(settings, {
+    system: SHOPS_SYSTEM,
+    messages: [{ role: 'user', content: `Wine shops in ${place.label}.` }],
+    tools: [webSearch(settings, 6)],
+  });
+  const { shops } = extractJson(text);
+  return Array.isArray(shops) ? shops : [];
 }

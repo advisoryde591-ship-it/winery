@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=17">
+  <link rel="stylesheet" href="styles.css?v=18">
 </head>
 <body>
   <header class="topbar">
@@ -121,6 +121,11 @@
       <div class="card">
         <p class="hint">כשבקבוק נגמר (הכמות יורדת ל-0) הוא נכנס לכאן אוטומטית. בוחרים כמה להזמין ושולחים הזמנה לחנות בוואטסאפ או במייל בלחיצה אחת.</p>
       </div>
+      <div class="card">
+        <button type="button" class="btn" id="btn-find-shops">🔎 מצא חנויות יין באזור שלי</button>
+        <p class="hint small" id="shops-status" hidden></p>
+        <div id="shops-list" class="shops-list"></div>
+      </div>
       <ul id="shopping-list" class="wine-list"></ul>
       <p id="empty-shopping" class="empty" hidden>אין כרגע מה להזמין 👌</p>
       <div id="order-actions" class="order-actions" hidden>
@@ -150,6 +155,21 @@
         <p class="hint small" id="rates-info"></p>
 
         <h2>הזמנות</h2>
+        <label>איפה אתה קונה יין
+          <select id="set-shop-country">
+            <option value="IL">🇮🇱 ישראל</option>
+            <option value="CY">🇨🇾 קפריסין</option>
+            <option value="GR">🇬🇷 יוון</option>
+            <option value="GB">🇬🇧 בריטניה</option>
+            <option value="US">🇺🇸 ארצות הברית</option>
+            <option value="FR">🇫🇷 צרפת</option>
+            <option value="IT">🇮🇹 איטליה</option>
+            <option value="DE">🇩🇪 גרמניה</option>
+          </select>
+        </label>
+        <label>עיר (רשות)
+          <input id="set-shop-city" type="text" placeholder="למשל: Limassol">
+        </label>
         <label>שם החנות / הספק
           <input id="set-store-name" type="text" placeholder="למשל: היין של מוטי">
         </label>
@@ -217,6 +237,6 @@
       if (b) b.hidden = false;
     }, 5000);
   </script>
-  <script type="module" src="app.js?v=17"></script>
+  <script type="module" src="app.js?v=18"></script>
 </body>
 </html>
