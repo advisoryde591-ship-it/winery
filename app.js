@@ -1,9 +1,9 @@
 import {
   getAllWines, putWine, deleteWine, clearWines, loadSettings, saveSettings, listBackups, saveBackup, restoreBackup,
-} from './db.js?v=10';
+} from './db.js?v=11';
 import {
   GROUPS, groupOf, flag, findDuplicate, mergeInto, mergeDuplicates, rankCompare, matchesSearch, appellationOf,
-} from './cellar.js?v=10';
+} from './cellar.js?v=11';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -208,7 +208,10 @@ function showView(name) {
   $('#screen-title').textContent = VIEW_TITLES[name];
   window.scrollTo(0, 0);
   if (name === 'shopping') renderShopping();
-  if (name === 'settings') renderBackups();
+  if (name === 'settings') {
+    renderBackups();
+    renderStorageInfo();
+  }
 }
 
 $$('.tabbar button').forEach((b) => b.addEventListener('click', () => {
@@ -433,7 +436,7 @@ $('#btn-analyze').addEventListener('click', async () => {
   status.innerHTML = '<div class="spinner"></div>מזהה את היין… בדרך כלל 10–20 שניות.';
   $('#btn-analyze').disabled = true;
   try {
-    const { identifyWine } = await import('./ai.js?v=10');
+    const { identifyWine } = await import('./ai.js?v=11');
     const images = [photos.front, photos.back].filter(Boolean).map((p) => p.ai);
     const info = await identifyWine(images, settings);
     const { bottle_box: box, ...details } = info;
@@ -454,7 +457,7 @@ const pricing = new Set();
 async function updatePriceInBackground(wine) {
   pricing.add(wine.id);
   try {
-    const { refreshPrice } = await import('./ai.js?v=10');
+    const { refreshPrice } = await import('./ai.js?v=11');
     Object.assign(wine, await refreshPrice(wine, settings), { currency: settings.currency });
     if (wines.includes(wine)) {
       await putWine(wine);
@@ -684,7 +687,7 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     out.textContent = 'מחפש ברשת…';
     e.target.disabled = true;
     try {
-      const { findPrices } = await import('./ai.js?v=10');
+      const { findPrices } = await import('./ai.js?v=11');
       out.innerHTML = linkify(await findPrices(wine, settings));
     } catch (err) {
       out.textContent = `⚠️ ${err.message}`;
@@ -722,7 +725,7 @@ async function ask(question) {
   chatHistory.push({ role: 'user', content: question });
   const pending = addMsg('ai loading', 'חושב… 🍷');
   try {
-    const { askSommelier } = await import('./ai.js?v=10');
+    const { askSommelier } = await import('./ai.js?v=11');
     const answer = await askSommelier(chatHistory, wines, settings);
     chatHistory.push({ role: 'assistant', content: answer });
     pending.classList.remove('loading');
@@ -862,7 +865,7 @@ $('#btn-test').addEventListener('click', async (e) => {
   out.textContent = 'בודק…';
   e.target.disabled = true;
   try {
-    const { testConnection } = await import('./ai.js?v=10');
+    const { testConnection } = await import('./ai.js?v=11');
     await testConnection({ ...settings, apiKey: key });
     settings.apiKey = key;
     saveSettings(settings);
@@ -921,7 +924,7 @@ async function mergeExistingDuplicates() {
 // השלמת דגל, אזור וציון ליינות ישנים, ברקע ואחד אחד
 async function enrichOldWines() {
   if (!settings.apiKey) return;
-  const { enrichWine } = await import('./ai.js?v=10');
+  const { enrichWine } = await import('./ai.js?v=11');
   for (const wine of wines.filter((w) => !w.enrichedAt)) {
     try {
       const { country_he, region_he, ...extra } = await enrichWine(wine, settings);
@@ -947,6 +950,22 @@ async function dailyBackup() {
   if (!last || Date.now() - last.id > 24 * 3600 * 1000 || last.count !== wines.length) {
     await saveBackup(wines, 'גיבוי יומי');
   }
+}
+
+// מה שמור בדיוק בהקשר הזה (Safari או אפליקציה ממסך הבית שומרים מידע בנפרד באייפון)
+async function renderStorageInfo() {
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const stored = await getAllWines().catch(() => null);
+  const backups = await listBackups().catch(() => []);
+  const persisted = await navigator.storage?.persisted?.().catch(() => null);
+  const rows = [
+    ['נפתח מתוך', standalone ? '📱 אייקון במסך הבית' : '🧭 דפדפן Safari'],
+    ['יינות שמורים כאן', stored ? `${stored.length} יינות · ${stored.reduce((n, w) => n + Math.max(0, w.quantity ?? 0), 0)} בקבוקים` : 'לא ניתן לקרוא'],
+    ['גיבויים אוטומטיים', backups.length ? `${backups.length} (הגדול: ${Math.max(...backups.map((b) => b.count))} יינות)` : 'אין'],
+    ['הגנה ממחיקה אוטומטית', persisted ? '✓ פעילה' : 'לא פעילה'],
+  ];
+  $('#storage-info').innerHTML = rows.map(([k, v]) => `<div class="backup-row"><span>${k}</span><b>${v}</b></div>`).join('')
+    + (standalone ? '' : '<p class="hint small">⚠️ ב-Safari המידע נשמר בנפרד מהאפליקציה שבמסך הבית, ו-iOS עלול למחוק אותו אחרי 7 ימים בלי שימוש. עדיף לעבוד רק מהאייקון שבמסך הבית.</p>');
 }
 
 async function renderBackups() {
@@ -978,6 +997,8 @@ async function init() {
   await mergeExistingDuplicates();
   renderCellar();
   window.cellarReady = true;
+  // מבקשים מהמערכת לא למחוק את המידע כשחסר מקום
+  navigator.storage?.persist?.().catch(() => {});
   renderBackups();
   enrichOldWines();
   if (!settings.apiKey) {

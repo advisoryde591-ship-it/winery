@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=10">
+  <link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
   <header class="topbar">
@@ -152,6 +152,11 @@
       </form>
 
       <div class="card form">
+        <h2>מצב האחסון בטלפון</h2>
+        <div id="storage-info" class="storage-info"></div>
+      </div>
+
+      <div class="card form">
         <h2>גיבוי</h2>
         <button id="btn-export" class="btn">⬇️ ייצוא גיבוי (JSON)</button>
         <label class="btn ghost">⬆️ ייבוא גיבוי
@@ -187,6 +192,6 @@
       if (b) b.hidden = false;
     }, 5000);
   </script>
-  <script type="module" src="app.js?v=10"></script>
+  <script type="module" src="app.js?v=11"></script>
 </body>
 </html>
