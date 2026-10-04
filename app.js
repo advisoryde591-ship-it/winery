@@ -79,7 +79,7 @@ async function processImage(file) {
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       return canvas.toDataURL('image/jpeg', quality);
     };
-    return { ai: draw(1280, 0.82).split(',')[1], thumb: draw(480, 0.8) };
+    return { ai: draw(1280, 0.82).split(',')[1], thumb: draw(480, 0.8), full: draw(800, 0.82) };
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -112,6 +112,87 @@ async function cropToBottle(base64, box) {
   canvas.height = Math.round(sh * scale);
   canvas.getContext('2d').drawImage(img, x0, y0, sw, sh, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/jpeg', 0.85);
+}
+
+// הסרת רקע בתוך הטלפון (בלי שרת). המנוע והמודל נטענים רק בלחיצה הראשונה.
+let bgEngineLoaded = false;
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = src;
+  });
+}
+
+async function removePhotoBackground(dataUrl, box = null) {
+  const { removeBackground } = await import('./vendor/bg-removal.js');
+  // המודל עובד על ריבוע; בקבוק צר נמתח ונחתך, אז מרפדים לריבוע לבן קודם
+  const img = await loadImage(dataUrl);
+  const side = Math.max(img.naturalWidth, img.naturalHeight);
+  const square = document.createElement('canvas');
+  square.width = side;
+  square.height = side;
+  const sctx = square.getContext('2d');
+  sctx.fillStyle = '#fff';
+  sctx.fillRect(0, 0, side, side);
+  const ox = Math.round((side - img.naturalWidth) / 2);
+  const oy = Math.round((side - img.naturalHeight) / 2);
+  sctx.drawImage(img, ox, oy);
+  const input = await new Promise((resolve) => square.toBlob(resolve, 'image/png'));
+
+  const output = await removeBackground(input, { model: 'small', output: { format: 'image/png' } });
+  bgEngineLoaded = true;
+
+  // גוזרים את השוליים השקופים סביב הבקבוק
+  const cut = await createImageBitmap(output);
+  const canvas = document.createElement('canvas');
+  canvas.width = cut.width;
+  canvas.height = cut.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(cut, 0, 0);
+  const pixels = ctx.getImageData(0, 0, cut.width, cut.height);
+  const { data } = pixels;
+  // אזור החיפוש: סביב הבקבוק שה-AI סימן (אם יש), כדי לא לגרור שאריות רקע מהצדדים
+  const iw = img.naturalWidth;
+  const ih = img.naturalHeight;
+  const area = box
+    ? {
+      x0: Math.max(0, Math.floor(ox + (box.x - 0.03) * iw)),
+      y0: Math.max(0, Math.floor(oy + (box.y - 0.02) * ih)),
+      x1: Math.min(cut.width - 1, Math.ceil(ox + (box.x + box.w + 0.03) * iw)),
+      y1: Math.min(cut.height - 1, Math.ceil(oy + (box.y + box.h + 0.02) * ih)),
+    }
+    : { x0: 0, y0: 0, x1: cut.width - 1, y1: cut.height - 1 };
+  // שקיפות מלאה מחוץ לאזור ולפיקסלים חצי-שקופים (אובך שנשאר מהרקע)
+  for (let y = 0; y < cut.height; y++) {
+    for (let x = 0; x < cut.width; x++) {
+      const i = (y * cut.width + x) * 4 + 3;
+      if (data[i] < 60 || x < area.x0 || x > area.x1 || y < area.y0 || y > area.y1) data[i] = 0;
+    }
+  }
+  ctx.putImageData(pixels, 0, 0);
+  let x0 = cut.width; let y0 = cut.height; let x1 = -1; let y1 = -1;
+  for (let y = 0; y < cut.height; y++) {
+    for (let x = 0; x < cut.width; x++) {
+      if (data[(y * cut.width + x) * 4 + 3] > 0) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  }
+  if (x1 < 0) throw new Error('empty result');
+  const pad = Math.round(Math.max(x1 - x0, y1 - y0) * 0.03);
+  x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad);
+  x1 = Math.min(cut.width - 1, x1 + pad); y1 = Math.min(cut.height - 1, y1 + pad);
+  const out = document.createElement('canvas');
+  out.width = x1 - x0 + 1;
+  out.height = y1 - y0 + 1;
+  out.getContext('2d').drawImage(canvas, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+  return out.toDataURL('image/png');
 }
 
 // ---------- ניווט ----------
@@ -261,7 +342,7 @@ $('#btn-analyze').addEventListener('click', async () => {
     const info = await identifyWine(images, settings);
     const { bottle_box: box, ...details } = info;
     const cropped = await cropToBottle(photos.front.ai, box).catch(() => null);
-    const wine = newWine({ ...details, photo: cropped ?? photos.front.thumb, ai: true });
+    const wine = newWine({ ...details, photo: cropped ?? photos.front.thumb, photoFull: photos.front.full, bottleBox: box ?? null, ai: true });
     resetAddForm();
     if (settings.webSearch) updatePriceInBackground(wine);
     openWine(wine, { isNew: true });
@@ -361,7 +442,11 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     </div>
     <div class="dlg-body">
       <div class="hero">
-        ${wine.photo ? `<img src="${wine.photo}" alt="">` : `<div class="ph" style="font-size:3rem;display:grid;place-items:center">${TYPE_ICONS[wine.type] ?? '🍷'}</div>`}
+        ${wine.photo ? `<div class="hero-photo">
+          <img src="${wine.photo}" alt="" id="hero-img">
+          <button type="button" class="btn small" id="btn-bg">${wine.photoOriginal ? '↩️ תמונה מקורית' : '✨ רקע נקי'}</button>
+          <span class="confidence" id="bg-status" hidden></span>
+        </div>` : `<div class="ph" style="font-size:3rem;display:grid;place-items:center">${TYPE_ICONS[wine.type] ?? '🍷'}</div>`}
         <div>
           <h2>${esc(wineTitle(wine))}</h2>
           <div class="meta">${esc([wine.vintage ?? 'NV', wine.region, wine.country].filter(Boolean).join(' · '))}</div>
@@ -442,6 +527,41 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     wines = wines.filter((w) => w.id !== wine.id);
     dlg.close();
     renderCellar();
+  });
+
+  $('#btn-bg', form)?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const status = $('#bg-status', form);
+    if (wine.photoOriginal) {
+      wine.photo = wine.photoOriginal;
+      delete wine.photoOriginal;
+    } else {
+      btn.disabled = true;
+      status.hidden = false;
+      status.textContent = bgEngineLoaded
+        ? 'מנקה רקע…'
+        : 'מכין את מנוע הסרת הרקע… בפעם הראשונה זה מוריד כ-40MB ולוקח עד דקה.';
+      try {
+        // התמונה המלאה (לפני החיתוך) נותנת למנוע הקשר ומונעת שאריות רקע בשוליים
+        const clean = wine.photoFull
+          ? await removePhotoBackground(wine.photoFull, wine.bottleBox)
+          : await removePhotoBackground(wine.photo);
+        wine.photoOriginal = wine.photo;
+        wine.photo = clean;
+        status.hidden = true;
+      } catch {
+        status.textContent = 'לא הצלחתי לנקות את הרקע. נסו שוב עם חיבור טוב לאינטרנט.';
+        btn.disabled = false;
+        return;
+      }
+      btn.disabled = false;
+    }
+    $('#hero-img', form).src = wine.photo;
+    btn.textContent = wine.photoOriginal ? '↩️ תמונה מקורית' : '✨ רקע נקי';
+    if (wines.includes(wine)) {
+      await putWine(wine);
+      renderCellar();
+    }
   });
 
   $('#btn-prices', form).addEventListener('click', async (e) => {

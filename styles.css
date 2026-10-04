@@ -222,3 +222,7 @@ details summary { cursor: pointer; font-weight: 600; margin: 12px 0 6px; }
 .test-result { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; line-height: 1.5; background: var(--surface-2); overflow-wrap: anywhere; }
 .test-result.ok { color: var(--ok); }
 .test-result.bad { color: var(--bad); }
+
+.hero-photo { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.hero-photo .btn.small { width: 110px; padding: 6px 4px; font-size: .8rem; }
+.hero-photo .confidence { width: 110px; text-align: center; }

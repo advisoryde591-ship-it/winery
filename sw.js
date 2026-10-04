@@ -1,5 +1,5 @@
 // Service worker: שומר את קבצי האפליקציה כדי שתיפתח גם בלי רשת.
-const CACHE = 'cellar-v5';
+const CACHE = 'cellar-v7';
 const ASSETS = [
   './', 'index.html', 'styles.css', 'app.js', 'db.js', 'ai.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
