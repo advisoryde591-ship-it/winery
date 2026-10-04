@@ -1,6 +1,6 @@
 // מרתף משותף: סנכרון היינות דרך Firestore בין כמה טלפונים שיודעים את אותו קוד מרתף.
 // המקור לתצוגה נשאר ה-IndexedDB המקומי; כאן רק מעבירים שינויים לענן וממנו.
-import { firebaseConfig } from './firebase-config.js?v=16';
+import { firebaseConfig } from './firebase-config.js?v=17';
 
 const CODE_KEY = 'cellar.sharedCode';
 const LAST_SYNC_KEY = 'cellar.lastSyncAt';
@@ -93,12 +93,26 @@ export async function removeWine(id) {
   await fb.deleteDoc(fb.doc(db, 'cellars', code, 'wines', id));
 }
 
+// כתיבה בקבוצות לפי גודל: Firestore מגביל בקשה אחת לכ-10MB
 async function pushMany(code, wines) {
-  for (let i = 0; i < wines.length; i += 15) {
-    const batch = fb.writeBatch(db);
-    for (const w of wines.slice(i, i + 15)) batch.set(fb.doc(db, 'cellars', code, 'wines', w.id), toRemote(w));
-    await batch.commit();
+  const LIMIT = 3_000_000;
+  let batch = fb.writeBatch(db);
+  let size = 0;
+  let count = 0;
+  for (const w of wines) {
+    const data = toRemote(w);
+    const bytes = JSON.stringify(data).length;
+    if (count && (size + bytes > LIMIT || count >= 100)) {
+      await batch.commit();
+      batch = fb.writeBatch(db);
+      size = 0;
+      count = 0;
+    }
+    batch.set(fb.doc(db, 'cellars', code, 'wines', w.id), data);
+    size += bytes;
+    count += 1;
   }
+  if (count) await batch.commit();
 }
 
 // מחליף את כל המרתף בענן ברשימה הנתונה (אחרי שחזור מגיבוי)
@@ -125,7 +139,17 @@ export async function start(localWinesFn, apply, onStatus) {
   onStatus('מתחבר…', null);
   await firestore();
   let first = true;
-  unsubscribe = fb.onSnapshot(winesRef(code), { includeMetadataChanges: false }, async (snap) => {
+  unsubscribe = fb.onSnapshot(winesRef(code), { includeMetadataChanges: true }, async (snap) => {
+    // בלי חיבור Firebase מחזיר קודם רשימה מהזיכרון (לפעמים ריקה). משווים רק מול תשובה אמיתית מהשרת,
+    // אחרת יינות היו נמחקים מהטלפון כאילו נמחקו בטלפון אחר.
+    if (snap.metadata.fromCache) {
+      onStatus(first ? 'ממתין לחיבור לאינטרנט…' : 'אין חיבור כרגע. השינויים יסונכרנו כשיחזור.', null);
+      if (first) return;
+    }
+    if (!first && !snap.docChanges().length) {
+      onStatus('מסונכרן ✓', true);
+      return;
+    }
     try {
       const local = new Map(localWinesFn().map((w) => [w.id, w]));
       const upsert = [];
@@ -166,12 +190,13 @@ export async function start(localWinesFn, apply, onStatus) {
       if (!snap.metadata.fromCache) setLastSync(Date.now());
       onStatus('מסונכרן ✓', true);
     } catch (err) {
-      onStatus(`שגיאת סנכרון: ${err.message}`, false);
+      first = true; // בפעם הבאה שמגיעים נתונים מהשרת, מנסים שוב השוואה מלאה
+      onStatus(`שגיאת סנכרון (${err.code ?? err.name}): ${err.message}`, false);
     }
   }, (err) => {
     onStatus(err.code === 'permission-denied'
       ? 'אין הרשאה למרתף. בדקו את הקוד ואת כללי האבטחה ב-Firebase.'
-      : `שגיאת סנכרון: ${err.message}`, false);
+      : `שגיאת סנכרון (${err.code ?? err.name}): ${err.message}`, false);
   });
 }
 
