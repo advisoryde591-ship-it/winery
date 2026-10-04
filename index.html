@@ -13,12 +13,18 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=10">
 </head>
 <body>
   <header class="topbar">
     <h1 id="screen-title">המרתף שלי</h1>
   </header>
+
+  <div id="boot-error" class="boot-error" hidden>
+    <b>האפליקציה לא נטענה עד הסוף.</b>
+    <span>היינות שלך שמורים בטלפון ולא נמחקו. זה קורה לפעמים מיד אחרי עדכון.</span>
+    <button class="btn primary" type="button" onclick="location.reload()">טעינה מחדש</button>
+  </div>
 
   <main id="app">
     <!-- מרתף -->
@@ -151,6 +157,9 @@
         <label class="btn ghost">⬆️ ייבוא גיבוי
           <input id="import-file" type="file" accept="application/json" hidden>
         </label>
+        <h2 style="margin-top:18px">גיבויים אוטומטיים בטלפון</h2>
+        <p class="hint small">האפליקציה שומרת עותק של המרתף פעם ביום ולפני כל שינוי אוטומטי. אם משהו נעלם, אפשר לשחזר מכאן.</p>
+        <div id="backup-list"></div>
       </div>
     </section>
   </main>
@@ -170,6 +179,14 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script type="module" src="app.js"></script>
+  <script>
+    // אם האפליקציה לא עלתה תוך כמה שניות (למשל קבצים ישנים וחדשים התערבבו), מציגים הודעה במקום מסך ריק
+    setTimeout(function () {
+      if (window.cellarReady) return;
+      var b = document.getElementById('boot-error');
+      if (b) b.hidden = false;
+    }, 5000);
+  </script>
+  <script type="module" src="app.js?v=10"></script>
 </body>
 </html>

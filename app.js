@@ -1,7 +1,9 @@
-import { getAllWines, putWine, deleteWine, clearWines, loadSettings, saveSettings } from './db.js';
+import {
+  getAllWines, putWine, deleteWine, clearWines, loadSettings, saveSettings, listBackups, saveBackup, restoreBackup,
+} from './db.js?v=10';
 import {
   GROUPS, groupOf, flag, findDuplicate, mergeInto, mergeDuplicates, rankCompare, matchesSearch, appellationOf,
-} from './cellar.js';
+} from './cellar.js?v=10';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -206,6 +208,7 @@ function showView(name) {
   $('#screen-title').textContent = VIEW_TITLES[name];
   window.scrollTo(0, 0);
   if (name === 'shopping') renderShopping();
+  if (name === 'settings') renderBackups();
 }
 
 $$('.tabbar button').forEach((b) => b.addEventListener('click', () => {
@@ -430,7 +433,7 @@ $('#btn-analyze').addEventListener('click', async () => {
   status.innerHTML = '<div class="spinner"></div>מזהה את היין… בדרך כלל 10–20 שניות.';
   $('#btn-analyze').disabled = true;
   try {
-    const { identifyWine } = await import('./ai.js');
+    const { identifyWine } = await import('./ai.js?v=10');
     const images = [photos.front, photos.back].filter(Boolean).map((p) => p.ai);
     const info = await identifyWine(images, settings);
     const { bottle_box: box, ...details } = info;
@@ -451,7 +454,7 @@ const pricing = new Set();
 async function updatePriceInBackground(wine) {
   pricing.add(wine.id);
   try {
-    const { refreshPrice } = await import('./ai.js');
+    const { refreshPrice } = await import('./ai.js?v=10');
     Object.assign(wine, await refreshPrice(wine, settings), { currency: settings.currency });
     if (wines.includes(wine)) {
       await putWine(wine);
@@ -681,7 +684,7 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     out.textContent = 'מחפש ברשת…';
     e.target.disabled = true;
     try {
-      const { findPrices } = await import('./ai.js');
+      const { findPrices } = await import('./ai.js?v=10');
       out.innerHTML = linkify(await findPrices(wine, settings));
     } catch (err) {
       out.textContent = `⚠️ ${err.message}`;
@@ -719,7 +722,7 @@ async function ask(question) {
   chatHistory.push({ role: 'user', content: question });
   const pending = addMsg('ai loading', 'חושב… 🍷');
   try {
-    const { askSommelier } = await import('./ai.js');
+    const { askSommelier } = await import('./ai.js?v=10');
     const answer = await askSommelier(chatHistory, wines, settings);
     chatHistory.push({ role: 'assistant', content: answer });
     pending.classList.remove('loading');
@@ -859,7 +862,7 @@ $('#btn-test').addEventListener('click', async (e) => {
   out.textContent = 'בודק…';
   e.target.disabled = true;
   try {
-    const { testConnection } = await import('./ai.js');
+    const { testConnection } = await import('./ai.js?v=10');
     await testConnection({ ...settings, apiKey: key });
     settings.apiKey = key;
     saveSettings(settings);
@@ -905,8 +908,10 @@ $('#import-file').addEventListener('change', async (e) => {
 
 // איחוד יינות כפולים שכבר שמורים (נוספו פעמיים כשורות נפרדות)
 async function mergeExistingDuplicates() {
-  const { kept, removed, changed } = mergeDuplicates(wines);
+  const { kept, removed, changed } = mergeDuplicates(wines.map((w) => ({ ...w })));
   if (!removed.length) return;
+  // גיבוי מלא לפני כל שינוי אוטומטי, כדי שאפשר יהיה לשחזר מההגדרות
+  await saveBackup(wines, 'לפני איחוד כפולים');
   for (const w of changed) await putWine(w);
   for (const w of removed) await deleteWine(w.id);
   wines = kept;
@@ -916,7 +921,7 @@ async function mergeExistingDuplicates() {
 // השלמת דגל, אזור וציון ליינות ישנים, ברקע ואחד אחד
 async function enrichOldWines() {
   if (!settings.apiKey) return;
-  const { enrichWine } = await import('./ai.js');
+  const { enrichWine } = await import('./ai.js?v=10');
   for (const wine of wines.filter((w) => !w.enrichedAt)) {
     try {
       const { country_he, region_he, ...extra } = await enrichWine(wine, settings);
@@ -936,11 +941,44 @@ async function enrichOldWines() {
   }
 }
 
+// עותק גיבוי אוטומטי פעם ביום (נשמרים 5 אחרונים)
+async function dailyBackup() {
+  const [last] = await listBackups();
+  if (!last || Date.now() - last.id > 24 * 3600 * 1000 || last.count !== wines.length) {
+    await saveBackup(wines, 'גיבוי יומי');
+  }
+}
+
+async function renderBackups() {
+  const backups = await listBackups().catch(() => []);
+  $('#backup-list').innerHTML = backups.length
+    ? backups.map((b) => `<div class="backup-row">
+        <span>${new Date(b.id).toLocaleString('he-IL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${b.count} יינות · ${esc(b.reason)}</span>
+        <button type="button" class="btn small" data-restore="${b.id}">שחזור</button>
+      </div>`).join('')
+    : '<p class="hint small">עוד אין גיבויים אוטומטיים.</p>';
+}
+
+$('#backup-list').addEventListener('click', async (e) => {
+  const id = Number(e.target.dataset.restore);
+  if (!id) return;
+  if (!confirm('לשחזר את המרתף לגיבוי הזה? המצב הנוכחי יישמר קודם כגיבוי נוסף.')) return;
+  await saveBackup(wines, 'לפני שחזור');
+  wines = await restoreBackup(id);
+  Object.assign(cellarView, { group: null, region: null });
+  renderCellar();
+  renderBackups();
+  toast(`✓ שוחזרו ${wines.length} יינות`);
+});
+
 async function init() {
   fillSettings();
   wines = await getAllWines();
+  await dailyBackup().catch(() => {});
   await mergeExistingDuplicates();
   renderCellar();
+  window.cellarReady = true;
+  renderBackups();
   enrichOldWines();
   if (!settings.apiKey) {
     toast('כדי לזהות יינות מתמונה, הוסיפו מפתח Claude API בהגדרות ⚙️', 4500);
@@ -950,4 +988,7 @@ async function init() {
   }
 }
 
-init();
+init().catch((err) => {
+  console.error(err);
+  $('#boot-error').hidden = false;
+});

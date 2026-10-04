@@ -251,3 +251,11 @@ details summary { cursor: pointer; font-weight: 600; margin: 12px 0 6px; }
 .rank { font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; margin-inline-end: 4px; }
 .flag { font-size: 1.05em; }
 .dup-note { background: color-mix(in srgb, var(--gold) 16%, transparent); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; line-height: 1.5; }
+
+.boot-error {
+  display: grid; gap: 8px; margin: 12px 16px; padding: 14px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 15%, var(--surface)); border: 1px solid var(--warn); line-height: 1.5;
+}
+.boot-error[hidden] { display: none; }
+.backup-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: .9rem; }
+.backup-row:last-child { border-bottom: none; }

@@ -1,5 +1,5 @@
 // Service worker: שומר את קבצי האפליקציה כדי שתיפתח גם בלי רשת.
-const CACHE = 'cellar-v8';
+const CACHE = 'cellar-v10';
 const ASSETS = [
   './', 'index.html', 'styles.css', 'app.js', 'db.js', 'ai.js', 'manifest.webmanifest', 'cellar.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
@@ -17,17 +17,18 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// קבצים מקומיים: קודם רשת (כדי לקבל עדכונים), ובלי רשת - מהמטמון. קריאות API לא נשמרות.
+// קבצים מקומיים: קודם רשת (תמיד בודקים מול השרת, כדי שלא יתערבבו קבצים ישנים וחדשים),
+// ובלי רשת - מהמטמון. קריאות API לא נשמרות.
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));
         return res;
       })
-      .catch(() => caches.match(e.request)),
+      .catch(() => caches.match(e.request, { ignoreSearch: true })),
   );
 });
