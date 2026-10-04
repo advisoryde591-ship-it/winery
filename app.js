@@ -1,9 +1,9 @@
 import {
   getAllWines, putWine, deleteWine, clearWines, loadSettings, saveSettings, listBackups, saveBackup, restoreBackup,
-} from './db.js?v=12';
+} from './db.js?v=13';
 import {
   GROUPS, groupOf, flag, findDuplicate, mergeInto, mergeDuplicates, rankCompare, matchesSearch, appellationOf,
-} from './cellar.js?v=12';
+} from './cellar.js?v=13';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -46,9 +46,69 @@ function money(amount, currency = settings.currency) {
   return `${CURRENCY_SIGNS[currency] ?? ''}${Math.round(amount).toLocaleString('he-IL')}`;
 }
 
+// ---------- שערי מטבע ----------
+// כל יין שומר את המחיר במטבע שבו נשמר; מציגים הכל במטבע שנבחר בהגדרות.
+// שערים יציגים מהבנק המרכזי האירופי (frankfurter.app), נשמרים ליום. ברירת מחדל משוערת אם אין רשת.
+const RATES_KEY = 'cellar.rates';
+let rates = { EUR: 1, USD: 1.08, ILS: 4.0 };
+try {
+  const cached = JSON.parse(localStorage.getItem(RATES_KEY) || 'null');
+  if (cached?.rates) rates = cached.rates;
+} catch {
+  // אין גישה לאחסון - נשארים עם ברירת המחדל
+}
+
+async function refreshRates() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(RATES_KEY) || 'null');
+    if (cached && Date.now() - cached.at < 12 * 3600 * 1000) return;
+  } catch { /* ממשיכים לרשת */ }
+  const urls = [
+    'https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD,ILS',
+    'https://api.frankfurter.app/latest?from=EUR&to=USD,ILS',
+  ];
+  for (const url of urls) {
+    try {
+      const data = await (await fetch(url)).json();
+      if (!data?.rates?.USD || !data?.rates?.ILS) continue;
+      rates = { EUR: 1, USD: data.rates.USD, ILS: data.rates.ILS };
+      try {
+        localStorage.setItem(RATES_KEY, JSON.stringify({ at: Date.now(), date: data.date, rates }));
+      } catch { /* לא נשמר, נבקש שוב בפעם הבאה */ }
+      renderCellar();
+      return;
+    } catch {
+      // מנסים את הכתובת הבאה; בלי רשת נשארים עם השערים האחרונים שנשמרו
+    }
+  }
+}
+
+function ratesText() {
+  let date = null;
+  try {
+    date = JSON.parse(localStorage.getItem(RATES_KEY) || 'null')?.date;
+  } catch { /* אין תאריך */ }
+  const usd = (rates.ILS / rates.USD).toFixed(2);
+  const eur = rates.ILS.toFixed(2);
+  return `שערי המרה: $1 = ₪${usd} · €1 = ₪${eur}${date ? ` (${date})` : ' (משוער, לא עודכן מהרשת)'}`;
+}
+
+function convert(amount, from) {
+  const to = settings.currency;
+  if (amount == null || !from || from === to || !rates[from] || !rates[to]) return amount;
+  return (amount / rates[from]) * rates[to];
+}
+
+// מחיר נמוך / גבוה / ממוצע של יין, במטבע התצוגה
+function priceLow(w) {
+  return convert(w.price_low ?? w.price_high, w.currency);
+}
+function priceHigh(w) {
+  return convert(w.price_high ?? w.price_low, w.currency);
+}
 function midPrice(w) {
   if (w.price_low == null && w.price_high == null) return null;
-  return ((w.price_low ?? w.price_high) + (w.price_high ?? w.price_low)) / 2;
+  return (priceLow(w) + priceHigh(w)) / 2;
 }
 
 function wineTitle(w) {
@@ -209,6 +269,7 @@ function showView(name) {
   window.scrollTo(0, 0);
   if (name === 'shopping') renderShopping();
   if (name === 'settings') {
+    $('#rates-info').textContent = ratesText();
     renderBackups();
     renderStorageInfo();
   }
@@ -250,7 +311,7 @@ function wineRow(w, rank = null) {
           ${w.rating ? `<span class="tag gold">${'★'.repeat(w.rating)}</span>` : ''}
           ${w.score ? `<span class="tag">🏅 ${w.score}</span>` : ''}
           ${status ? `<span class="tag ${status.cls}">${status.label}</span>` : ''}
-          ${mid ? `<span class="tag price">${money(mid, w.currency)}</span>` : ''}
+          ${mid ? `<span class="tag price">${money(mid)}</span>` : ''}
         </div>
       </div>
       <div class="qty">
@@ -437,7 +498,7 @@ $('#btn-analyze').addEventListener('click', async () => {
   status.innerHTML = '<div class="spinner"></div>מזהה את היין… בדרך כלל 10–20 שניות.';
   $('#btn-analyze').disabled = true;
   try {
-    const { identifyWine } = await import('./ai.js?v=12');
+    const { identifyWine } = await import('./ai.js?v=13');
     const images = [photos.front, photos.back].filter(Boolean).map((p) => p.ai);
     const info = await identifyWine(images, settings);
     const { bottle_box: box, ...details } = info;
@@ -458,7 +519,7 @@ const pricing = new Set();
 async function updatePriceInBackground(wine) {
   pricing.add(wine.id);
   try {
-    const { refreshPrice } = await import('./ai.js?v=12');
+    const { refreshPrice } = await import('./ai.js?v=13');
     Object.assign(wine, await refreshPrice(wine, settings), { currency: settings.currency });
     if (wines.includes(wine)) {
       await putWine(wine);
@@ -475,7 +536,7 @@ async function updatePriceInBackground(wine) {
 function priceBlock(wine) {
   const mid = midPrice(wine);
   return `
-    ${mid ? `<p class="price" style="font-size:1.3rem;margin:8px 0 2px"><span dir="ltr">${money(wine.price_low, wine.currency)}–${money(wine.price_high, wine.currency)}</span></p>` : ''}
+    ${mid ? `<p class="price" style="font-size:1.3rem;margin:8px 0 2px"><span dir="ltr">${money(priceLow(wine))}–${money(priceHigh(wine))}</span></p>` : ''}
     ${pricing.has(wine.id) ? '<div class="confidence">🔄 בודק מחיר עדכני ברשת…</div>' : ''}
     ${wine.price_note && !pricing.has(wine.id) ? `<div class="confidence">${esc(wine.price_note)}</div>` : ''}`;
 }
@@ -513,7 +574,7 @@ const FIELDS = [
   ['producer', 'יצרן'], ['name', 'שם היין'], ['vintage', 'בציר', 'number'],
   ['country', 'מדינה'], ['region', 'אזור'], ['appellation', 'אפלסיון (לקבוצות וחיפוש)'],
   ['score', 'ציון מבקרים (80-100)', 'number'], ['grapes', 'זנים (מופרדים בפסיק)', 'list'],
-  ['price_low', 'מחיר מינימום', 'number'], ['price_high', 'מחיר מקסימום', 'number'],
+  ['price_low', 'מחיר מינימום', 'number', true], ['price_high', 'מחיר מקסימום', 'number', true],
   ['drink_from', 'לשתות משנת', 'number'], ['drink_until', 'לשתות עד שנת', 'number'],
   ['peak', 'שנת שיא', 'number'], ['serving_temp', 'טמפרטורת הגשה'],
   ['location', 'מיקום במרתף (מדף/תא)'], ['quantity', 'כמות', 'number'],
@@ -531,9 +592,10 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
   const dup = isNew ? findDuplicate(wine, wines) : null;
   const typeOptions = Object.entries(TYPE_LABELS)
     .map(([v, l]) => `<option value="${v}" ${wine.type === v ? 'selected' : ''}>${l}</option>`).join('');
-  const fieldInputs = FIELDS.map(([key, label, kind]) => {
+  const fieldInputs = FIELDS.map(([key, label, kind, isPrice]) => {
     const val = kind === 'list' ? (wine[key] ?? []).join(', ') : (wine[key] ?? '');
-    return `<label>${label}<input name="${key}" ${kind === 'number' ? 'type="number" inputmode="decimal" step="any"' : ''} value="${esc(val)}"></label>`;
+    const unit = isPrice ? ` (${CURRENCY_SIGNS[wine.currency ?? settings.currency] ?? ''})` : '';
+    return `<label>${label}${unit}<input name="${key}" ${kind === 'number' ? 'type="number" inputmode="decimal" step="any"' : ''} value="${esc(val)}"></label>`;
   }).join('');
 
   form.innerHTML = `
@@ -688,7 +750,7 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     out.textContent = 'מחפש ברשת…';
     e.target.disabled = true;
     try {
-      const { findPrices } = await import('./ai.js?v=12');
+      const { findPrices } = await import('./ai.js?v=13');
       out.innerHTML = linkify(await findPrices(wine, settings));
     } catch (err) {
       out.textContent = `⚠️ ${err.message}`;
@@ -726,7 +788,7 @@ async function ask(question) {
   chatHistory.push({ role: 'user', content: question });
   const pending = addMsg('ai loading', 'חושב… 🍷');
   try {
-    const { askSommelier } = await import('./ai.js?v=12');
+    const { askSommelier } = await import('./ai.js?v=13');
     const answer = await askSommelier(chatHistory, wines, settings);
     chatHistory.push({ role: 'assistant', content: answer });
     pending.classList.remove('loading');
@@ -766,7 +828,7 @@ function renderShopping() {
       ${w.photo ? `<img src="${w.photo}" alt="">` : `<div class="ph">${TYPE_ICONS[w.type] ?? '🍷'}</div>`}
       <div>
         <h3>${esc(wineTitle(w))}</h3>
-        <div class="meta">${esc(w.vintage ?? 'NV')}${midPrice(w) ? ` · ~${money(midPrice(w), w.currency)}` : ''}</div>
+        <div class="meta">${esc(w.vintage ?? 'NV')}${midPrice(w) ? ` · ~${money(midPrice(w))}` : ''}</div>
         <button class="btn small ghost" data-act="remove" style="margin-top:6px">הסרה מהרשימה</button>
       </div>
       <div class="qty">
@@ -836,6 +898,7 @@ const SETTING_INPUTS = {
 function fillSettings() {
   for (const [key, sel] of Object.entries(SETTING_INPUTS)) $(sel).value = settings[key] ?? '';
   $('#set-websearch').checked = settings.webSearch;
+  $('#rates-info').textContent = ratesText();
   $('#set-fast').checked = settings.fastMode;
 }
 
@@ -866,7 +929,7 @@ $('#btn-test').addEventListener('click', async (e) => {
   out.textContent = 'בודק…';
   e.target.disabled = true;
   try {
-    const { testConnection } = await import('./ai.js?v=12');
+    const { testConnection } = await import('./ai.js?v=13');
     await testConnection({ ...settings, apiKey: key });
     settings.apiKey = key;
     saveSettings(settings);
@@ -957,7 +1020,7 @@ async function mergeExistingDuplicates() {
 // השלמת דגל, אזור וציון ליינות ישנים, ברקע ואחד אחד
 async function enrichOldWines() {
   if (!settings.apiKey) return;
-  const { enrichWine } = await import('./ai.js?v=12');
+  const { enrichWine } = await import('./ai.js?v=13');
   for (const wine of wines.filter((w) => !w.enrichedAt)) {
     try {
       const { country_he, region_he, ...extra } = await enrichWine(wine, settings);
@@ -1032,6 +1095,7 @@ async function init() {
   window.cellarReady = true;
   // מבקשים מהמערכת לא למחוק את המידע כשחסר מקום
   navigator.storage?.persist?.().catch(() => {});
+  refreshRates();
   renderBackups();
   enrichOldWines();
   if (!settings.apiKey) {
