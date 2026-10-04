@@ -1,9 +1,9 @@
 import {
   getAllWines, putWine, deleteWine, clearWines, loadSettings, saveSettings, listBackups, saveBackup, restoreBackup,
-} from './db.js?v=11';
+} from './db.js?v=12';
 import {
   GROUPS, groupOf, flag, findDuplicate, mergeInto, mergeDuplicates, rankCompare, matchesSearch, appellationOf,
-} from './cellar.js?v=11';
+} from './cellar.js?v=12';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -293,6 +293,7 @@ const SORTERS = {
 
 function renderCellar() {
   renderStats();
+  renderTransferBanner();
   updateShopBadge();
   $('#empty-cellar').hidden = wines.length > 0;
   const q = $('#search').value.trim();
@@ -436,7 +437,7 @@ $('#btn-analyze').addEventListener('click', async () => {
   status.innerHTML = '<div class="spinner"></div>מזהה את היין… בדרך כלל 10–20 שניות.';
   $('#btn-analyze').disabled = true;
   try {
-    const { identifyWine } = await import('./ai.js?v=11');
+    const { identifyWine } = await import('./ai.js?v=12');
     const images = [photos.front, photos.back].filter(Boolean).map((p) => p.ai);
     const info = await identifyWine(images, settings);
     const { bottle_box: box, ...details } = info;
@@ -457,7 +458,7 @@ const pricing = new Set();
 async function updatePriceInBackground(wine) {
   pricing.add(wine.id);
   try {
-    const { refreshPrice } = await import('./ai.js?v=11');
+    const { refreshPrice } = await import('./ai.js?v=12');
     Object.assign(wine, await refreshPrice(wine, settings), { currency: settings.currency });
     if (wines.includes(wine)) {
       await putWine(wine);
@@ -687,7 +688,7 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     out.textContent = 'מחפש ברשת…';
     e.target.disabled = true;
     try {
-      const { findPrices } = await import('./ai.js?v=11');
+      const { findPrices } = await import('./ai.js?v=12');
       out.innerHTML = linkify(await findPrices(wine, settings));
     } catch (err) {
       out.textContent = `⚠️ ${err.message}`;
@@ -725,7 +726,7 @@ async function ask(question) {
   chatHistory.push({ role: 'user', content: question });
   const pending = addMsg('ai loading', 'חושב… 🍷');
   try {
-    const { askSommelier } = await import('./ai.js?v=11');
+    const { askSommelier } = await import('./ai.js?v=12');
     const answer = await askSommelier(chatHistory, wines, settings);
     chatHistory.push({ role: 'assistant', content: answer });
     pending.classList.remove('loading');
@@ -865,7 +866,7 @@ $('#btn-test').addEventListener('click', async (e) => {
   out.textContent = 'בודק…';
   e.target.disabled = true;
   try {
-    const { testConnection } = await import('./ai.js?v=11');
+    const { testConnection } = await import('./ai.js?v=12');
     await testConnection({ ...settings, apiKey: key });
     settings.apiKey = key;
     saveSettings(settings);
@@ -879,33 +880,65 @@ $('#btn-test').addEventListener('click', async (e) => {
   }
 });
 
-$('#btn-export').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify({ version: 1, exported: new Date().toISOString(), wines }, null, 1)], { type: 'application/json' });
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+// קובץ עם כל המרתף. באייפון נפתח חלון השיתוף ("שמירה בקבצים"), ובמקומות אחרים הורדה רגילה.
+async function exportCellar() {
+  const name = `cellar-${new Date().toISOString().slice(0, 10)}.json`;
+  const file = new File([JSON.stringify({ version: 1, exported: new Date().toISOString(), wines })], name, { type: 'application/json' });
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'המרתף שלי' });
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+    }
+  }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `cellar-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.href = URL.createObjectURL(file);
+  a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-});
+}
 
-$('#import-file').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  try {
-    const data = JSON.parse(await file.text());
-    if (!Array.isArray(data.wines)) throw new Error();
-    if (!confirm(`לייבא ${data.wines.length} יינות? זה יחליף את המרתף הנוכחי.`)) return;
-    await clearWines();
-    for (const w of data.wines) await putWine(w);
-    wines = await getAllWines();
-    renderCellar();
-    toast('הגיבוי שוחזר ✓');
-  } catch {
-    toast('קובץ גיבוי לא תקין');
-  } finally {
-    e.target.value = '';
-  }
-});
+// מוסיף את היינות מהקובץ למרתף (לא מוחק את מה שכבר יש), ומאחד כפולים
+async function importCellar(file) {
+  const data = JSON.parse(await file.text());
+  if (!Array.isArray(data.wines)) throw new Error('bad file');
+  await saveBackup(wines, 'לפני ייבוא');
+  for (const w of data.wines) await putWine(w);
+  wines = await getAllWines();
+  await mergeExistingDuplicates();
+  Object.assign(cellarView, { group: null, region: null });
+  renderCellar();
+  return data.wines.length;
+}
+
+$('#btn-export').addEventListener('click', exportCellar);
+$('#btn-transfer-export').addEventListener('click', exportCellar);
+
+for (const input of ['#import-file', '#transfer-import']) {
+  $(input).addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const n = await importCellar(file);
+      showView('cellar');
+      toast(`✓ הועברו ${n} יינות למרתף`, 4000);
+    } catch {
+      toast('הקובץ לא נקרא. ודאו שבחרתם את קובץ ה-cellar שנשמר.');
+    } finally {
+      e.target.value = '';
+    }
+  });
+}
+
+// הסבר העברה: ב-Safari ובאפליקציה שבמסך הבית המרתף נשמר בנפרד
+function renderTransferBanner() {
+  const standalone = isStandalone();
+  $('#transfer-export').hidden = standalone || wines.length === 0;
+  $('#transfer-import').closest('.transfer').hidden = !standalone || wines.length > 0;
+}
 
 // ---------- הפעלה ----------
 
@@ -924,7 +957,7 @@ async function mergeExistingDuplicates() {
 // השלמת דגל, אזור וציון ליינות ישנים, ברקע ואחד אחד
 async function enrichOldWines() {
   if (!settings.apiKey) return;
-  const { enrichWine } = await import('./ai.js?v=11');
+  const { enrichWine } = await import('./ai.js?v=12');
   for (const wine of wines.filter((w) => !w.enrichedAt)) {
     try {
       const { country_he, region_he, ...extra } = await enrichWine(wine, settings);

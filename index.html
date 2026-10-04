@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
   <header class="topbar">
@@ -30,6 +30,25 @@
     <!-- מרתף -->
     <section id="view-cellar" class="view active">
       <div class="stats" id="stats"></div>
+
+      <div class="transfer card" id="transfer-export" hidden>
+        <b>📱 להעביר את המרתף לאפליקציה שבמסך הבית?</b>
+        <p class="hint small">באייפון, Safari והאפליקציה שבמסך הבית שומרים מידע בנפרד. מעבירים פעם אחת:</p>
+        <ol class="hint small">
+          <li>לוחצים כאן על "שמירת קובץ העברה" ← <b>שמירה בקבצים</b>.</li>
+          <li>פותחים את האפליקציה מהאייקון ← לוחצים "ייבוא קובץ העברה" ובוחרים את הקובץ.</li>
+        </ol>
+        <button type="button" class="btn primary" id="btn-transfer-export">💾 שמירת קובץ העברה</button>
+      </div>
+
+      <div class="transfer card" hidden>
+        <b>📥 היינות שלך שמורים ב-Safari?</b>
+        <p class="hint small">פתחו את האתר ב-Safari ולחצו שם "שמירת קובץ העברה". אחר כך חזרו לכאן ובחרו את הקובץ:</p>
+        <label class="btn primary">📂 ייבוא קובץ העברה
+          <input id="transfer-import" type="file" accept=".json,application/json" hidden>
+        </label>
+      </div>
+
       <input id="search" type="search" placeholder="חיפוש: יין, יצרן, אזור (שאבלי, ריוחה…)" autocomplete="off">
 
       <!-- מסך הבית: קבוצות לפי סוג ולפי אזור -->
@@ -158,9 +177,9 @@
 
       <div class="card form">
         <h2>גיבוי</h2>
-        <button id="btn-export" class="btn">⬇️ ייצוא גיבוי (JSON)</button>
-        <label class="btn ghost">⬆️ ייבוא גיבוי
-          <input id="import-file" type="file" accept="application/json" hidden>
+        <button id="btn-export" class="btn">⬇️ ייצוא גיבוי / קובץ העברה</button>
+        <label class="btn ghost">⬆️ ייבוא גיבוי / קובץ העברה
+          <input id="import-file" type="file" accept=".json,application/json" hidden>
         </label>
         <h2 style="margin-top:18px">גיבויים אוטומטיים בטלפון</h2>
         <p class="hint small">האפליקציה שומרת עותק של המרתף פעם ביום ולפני כל שינוי אוטומטי. אם משהו נעלם, אפשר לשחזר מכאן.</p>
@@ -192,6 +211,6 @@
       if (b) b.hidden = false;
     }, 5000);
   </script>
-  <script type="module" src="app.js?v=11"></script>
+  <script type="module" src="app.js?v=12"></script>
 </body>
 </html>
