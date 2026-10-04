@@ -285,3 +285,7 @@ details summary { cursor: pointer; font-weight: 600; margin: 12px 0 6px; }
 .shop-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .shop-form label { display: block; font-size: .85rem; }
 .shop-form input { margin-top: 4px; }
+
+/* באנגלית (משמאל לימין): ההודעות שלי בצד ימין */
+[dir="ltr"] .msg.user { align-self: flex-end; }
+[dir="ltr"] .msg.ai { align-self: flex-start; }

@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=19">
+  <link rel="stylesheet" href="styles.css?v=21">
 </head>
 <body>
   <header class="topbar">
@@ -138,6 +138,12 @@
     <!-- הגדרות -->
     <section id="view-settings" class="view">
       <form id="settings-form" class="card form">
+        <label>🌐 שפה / Language
+          <select id="set-language">
+            <option value="he">עברית</option>
+            <option value="en">English</option>
+          </select>
+        </label>
         <h2>חיבור ל-AI</h2>
         <label>מפתח Claude API
           <input id="set-apikey" type="password" placeholder="sk-ant-…" autocomplete="off">
@@ -229,6 +235,6 @@
       if (b) b.hidden = false;
     }, 5000);
   </script>
-  <script type="module" src="app.js?v=19"></script>
+  <script type="module" src="app.js?v=21"></script>
 </body>
 </html>

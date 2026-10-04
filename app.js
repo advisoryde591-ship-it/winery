@@ -1,24 +1,25 @@
 import {
   getAllWines, putWine as dbPut, deleteWine as dbDelete, loadSettings, saveSettings, listBackups, saveBackup, restoreBackup,
-} from './db.js?v=19';
-import * as sync from './sync.js?v=19';
+} from './db.js?v=21';
+import * as sync from './sync.js?v=21';
+import { t, isEn, locale, translatePage } from './i18n.js?v=21';
 import {
   GROUPS, groupOf, flag, findDuplicate, mergeInto, mergeDuplicates, rankCompare, matchesSearch, appellationOf,
-} from './cellar.js?v=19';
+} from './cellar.js?v=21';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 const TYPE_LABELS = {
-  red: 'אדום', white: 'לבן', rose: 'רוזה', sparkling: 'מבעבע',
-  champagne: 'שמפניה', dessert: 'קינוח', fortified: 'מחוזק',
+  red: t("אדום"), white: t("לבן"), rose: t("רוזה"), sparkling: t("מבעבע"),
+  champagne: t("שמפניה"), dessert: t("קינוח"), fortified: t("מחוזק"),
 };
 const TYPE_ICONS = {
   red: '🍷', white: '🥂', rose: '🌸', sparkling: '🍾', champagne: '🍾', dessert: '🍯', fortified: '🥃',
 };
 const CURRENCY_SIGNS = { ILS: '₪', USD: '$', EUR: '€' };
 const VIEW_TITLES = {
-  cellar: 'המרתף שלי', add: 'הוספת בקבוק', sommelier: 'מה לשתות?', shopping: 'רשימת קניות', settings: 'הגדרות',
+  cellar: t("המרתף שלי"), add: t("הוספת בקבוק"), sommelier: t("מה לשתות?"), shopping: t("רשימת קניות"), settings: t("הגדרות"),
 };
 
 let wines = [];
@@ -31,12 +32,12 @@ const photos = { front: null, back: null };
 async function putWine(wine) {
   wine.updatedAt = Date.now();
   await dbPut(wine);
-  sync.pushWine(wine).catch(() => setSyncStatus('השינוי יסונכרן כשיחזור החיבור', false));
+  sync.pushWine(wine).catch(() => setSyncStatus(t("השינוי יסונכרן כשיחזור החיבור"), false));
 }
 
 async function deleteWine(id) {
   await dbDelete(id);
-  sync.removeWine(id).catch(() => setSyncStatus('המחיקה תסונכרן כשיחזור החיבור', false));
+  sync.removeWine(id).catch(() => setSyncStatus(t("המחיקה תסונכרן כשיחזור החיבור"), false));
 }
 
 // ---------- עזרים ----------
@@ -57,7 +58,7 @@ function toast(text, ms = 2600) {
 
 function money(amount, currency = settings.currency) {
   if (amount == null || Number.isNaN(amount)) return '';
-  return `${CURRENCY_SIGNS[currency] ?? ''}${Math.round(amount).toLocaleString('he-IL')}`;
+  return `${CURRENCY_SIGNS[currency] ?? ''}${Math.round(amount).toLocaleString(locale)}`;
 }
 
 // ---------- שערי מטבע ----------
@@ -104,7 +105,7 @@ function ratesText() {
   } catch { /* אין תאריך */ }
   const usd = (rates.ILS / rates.USD).toFixed(2);
   const eur = rates.ILS.toFixed(2);
-  return `שערי המרה: $1 = ₪${usd} · €1 = ₪${eur}${date ? ` (${date})` : ' (משוער, לא עודכן מהרשת)'}`;
+  return `${t("שערי המרה: $1 = ₪")}${usd} · €1 = ₪${eur}${date ? ` (${date})` : t(" (משוער, לא עודכן מהרשת)")}`;
 }
 
 function convert(amount, from) {
@@ -126,18 +127,18 @@ function midPrice(w) {
 }
 
 function wineTitle(w) {
-  return [w.producer, w.name].filter(Boolean).join(' · ') || 'יין ללא שם';
+  return [w.producer, w.name].filter(Boolean).join(' · ') || t("יין ללא שם");
 }
 
 // מצב חלון השתייה ביחס לשנה הנוכחית
 function drinkStatus(w) {
   const y = new Date().getFullYear();
   if (!w.drink_from && !w.drink_until) return null;
-  if (w.drink_until && y > w.drink_until) return { label: 'עבר את השיא', cls: 'bad', rank: 0 };
-  if (w.drink_until && y >= w.drink_until - 1) return { label: 'לשתות בהקדם', cls: 'warn', rank: 1 };
-  if (w.peak && Math.abs(y - w.peak) <= 1) return { label: 'בשיא ✨', cls: 'gold', rank: 2 };
-  if (w.drink_from && y < w.drink_from) return { label: `לחכות עד ${w.drink_from}`, cls: '', rank: 4 };
-  return { label: 'מוכן לשתייה', cls: 'ok', rank: 3 };
+  if (w.drink_until && y > w.drink_until) return { label: t("עבר את השיא"), cls: 'bad', rank: 0 };
+  if (w.drink_until && y >= w.drink_until - 1) return { label: t("לשתות בהקדם"), cls: 'warn', rank: 1 };
+  if (w.peak && Math.abs(y - w.peak) <= 1) return { label: t("בשיא ✨"), cls: 'gold', rank: 2 };
+  if (w.drink_from && y < w.drink_from) return { label: `${t("לחכות עד ")}${w.drink_from}`, cls: '', rank: 4 };
+  return { label: t("מוכן לשתייה"), cls: 'ok', rank: 3 };
 }
 
 // הקטנת תמונה: גרסה ל-AI (base64) ותמונה ממוזערת לשמירה
@@ -147,7 +148,7 @@ async function processImage(file) {
     const img = await new Promise((resolve, reject) => {
       const i = new Image();
       i.onload = () => resolve(i);
-      i.onerror = () => reject(new Error('לא הצלחתי לקרוא את התמונה'));
+      i.onerror = () => reject(new Error(t("לא הצלחתי לקרוא את התמונה")));
       i.src = url;
     });
     const draw = (max, quality) => {
@@ -311,9 +312,9 @@ function renderStats() {
   const value = inStock.reduce((s, w) => s + (midPrice(w) ?? 0) * w.quantity, 0);
   const ready = inStock.filter((w) => (drinkStatus(w)?.rank ?? 9) <= 2).length;
   $('#stats').innerHTML = `
-    <div class="stat"><b>${bottles}</b><span>בקבוקים</span></div>
-    <div class="stat"><b>${money(value) || '—'}</b><span>שווי משוער</span></div>
-    <div class="stat"><b>${ready}</b><span>לשתות עכשיו</span></div>`;
+    <div class="stat"><b>${bottles}</b><span>${t("בקבוקים")}</span></div>
+    <div class="stat"><b>${money(value) || '—'}</b><span>${t("שווי משוער")}</span></div>
+    <div class="stat"><b>${ready}</b><span>${t("לשתות עכשיו")}</span></div>`;
 }
 
 function wineRow(w, rank = null) {
@@ -333,9 +334,9 @@ function wineRow(w, rank = null) {
         </div>
       </div>
       <div class="qty">
-        <button data-act="inc" aria-label="הוסף בקבוק">+</button>
+        <button data-act="inc" aria-label="${t("הוסף בקבוק")}">+</button>
         <b>${w.quantity}</b>
-        <button data-act="dec" aria-label="שתיתי בקבוק">−</button>
+        <button data-act="dec" aria-label="${t("שתיתי בקבוק")}">−</button>
       </div>
     </li>`;
 }
@@ -357,7 +358,7 @@ function regionChips(list, active) {
     counts.set(name, entry);
   }
   return [...counts.entries()]
-    .sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0], 'he'))
+    .sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0], locale))
     .map(([name, { n, flag: f }]) => `<button type="button" class="chip ${name === active ? 'active' : ''}" data-region="${esc(name)}">${f} ${esc(name)} <small>${n}</small></button>`)
     .join('');
 }
@@ -367,7 +368,7 @@ const SORTERS = {
   drink: (a, b) => (drinkStatus(a)?.rank ?? 9) - (drinkStatus(b)?.rank ?? 9),
   value: (a, b) => (midPrice(b) ?? 0) - (midPrice(a) ?? 0),
   recent: (a, b) => b.created - a.created,
-  name: (a, b) => wineTitle(a).localeCompare(wineTitle(b), 'he'),
+  name: (a, b) => wineTitle(a).localeCompare(wineTitle(b), locale),
 };
 
 function renderCellar() {
@@ -387,8 +388,8 @@ function renderCellar() {
       if (g.id === 'other' && !list.length) return '';
       const value = list.reduce((sum, w) => sum + (midPrice(w) ?? 0) * Math.max(0, w.quantity), 0);
       return `<button type="button" class="group-tile ${n ? '' : 'empty-group'}" data-group="${g.id}">
-        <span class="icon">${g.icon}</span><b>${g.label}</b>
-        <span>${n} בקבוקים${value ? ` · ${money(value)}` : ''}</span>
+        <span class="icon">${g.icon}</span><b>${t(g.label)}</b>
+        <span>${n}${t(" בקבוקים")}${value ? ` · ${money(value)}` : ''}</span>
       </button>`;
     }).join('');
     const chips = regionChips(wines);
@@ -402,8 +403,8 @@ function renderCellar() {
     && (!cellarView.region || appellationOf(w) === cellarView.region)
     && matchesSearch(w, q));
   $('#list-title').textContent = group
-    ? `${group.icon} ${group.label}${cellarView.region ? ` · ${cellarView.region}` : ''}`
-    : cellarView.region ? `📍 ${cellarView.region}` : `🔎 ${list.length} תוצאות`;
+    ? `${group.icon} ${t(group.label)}${cellarView.region ? ` · ${cellarView.region}` : ''}`
+    : cellarView.region ? `📍 ${cellarView.region}` : `🔎 ${list.length}${t(" תוצאות")}`;
   $('#list-chips').innerHTML = group ? regionChips(wines.filter((w) => groupOf(w) === group.id), cellarView.region) : '';
 
   const sort = $('#sort').value;
@@ -467,7 +468,7 @@ async function changeQty(wine, delta) {
   if (wine.quantity === 0) {
     wine.reorder = true;
     wine.reorderQty ??= Number(settings.reorderQty) || 1;
-    toast(`🛒 ${wineTitle(wine)} נגמר ונוסף לרשימת הקניות`);
+    toast(`🛒 ${wineTitle(wine)}${t(" נגמר ונוסף לרשימת הקניות")}`);
   } else if (delta > 0) {
     wine.reorder = false;
   }
@@ -486,7 +487,7 @@ function bindPhoto(slot, key) {
       const el = $(`#slot-${key}`);
       el.style.backgroundImage = `url(${photos[key].thumb})`;
       el.classList.add('has-img');
-      $('span', el).textContent = 'החלפת תמונה';
+      $('span', el).textContent = t("החלפת תמונה");
       $('#btn-analyze').disabled = !photos.front;
     } catch (err) {
       toast(err.message);
@@ -504,8 +505,8 @@ function resetAddForm() {
     el.classList.remove('has-img');
     $(`#photo-${key}`).value = '';
   }
-  $('#slot-front span').textContent = '📷 תווית קדמית';
-  $('#slot-back span').textContent = '➕ תווית אחורית (רשות)';
+  $('#slot-front span').textContent = t("📷 תווית קדמית");
+  $('#slot-back span').textContent = t("➕ תווית אחורית (רשות)");
   $('#btn-analyze').disabled = true;
   $('#analyze-status').hidden = true;
 }
@@ -513,10 +514,10 @@ function resetAddForm() {
 $('#btn-analyze').addEventListener('click', async () => {
   const status = $('#analyze-status');
   status.hidden = false;
-  status.innerHTML = '<div class="spinner"></div>מזהה את היין… בדרך כלל 10–20 שניות.';
+  status.innerHTML = ("<div class=\"spinner\"></div>" + t("מזהה את היין… בדרך כלל 10–20 שניות."));
   $('#btn-analyze').disabled = true;
   try {
-    const { identifyWine } = await import('./ai.js?v=19');
+    const { identifyWine } = await import('./ai.js?v=21');
     const images = [photos.front, photos.back].filter(Boolean).map((p) => p.ai);
     const info = await identifyWine(images, settings);
     const { bottle_box: box, ...details } = info;
@@ -537,7 +538,7 @@ const pricing = new Set();
 async function updatePriceInBackground(wine) {
   pricing.add(wine.id);
   try {
-    const { refreshPrice } = await import('./ai.js?v=19');
+    const { refreshPrice } = await import('./ai.js?v=21');
     Object.assign(wine, await refreshPrice(wine, settings), { currency: settings.currency });
     if (wines.includes(wine)) {
       await putWine(wine);
@@ -555,7 +556,7 @@ function priceBlock(wine) {
   const mid = midPrice(wine);
   return `
     ${mid ? `<p class="price" style="font-size:1.3rem;margin:8px 0 2px"><span dir="ltr">${money(priceLow(wine))}–${money(priceHigh(wine))}</span></p>` : ''}
-    ${pricing.has(wine.id) ? '<div class="confidence">🔄 בודק מחיר עדכני ברשת…</div>' : ''}
+    ${pricing.has(wine.id) ? ("<div class=\"confidence\">" + t("🔄 בודק מחיר עדכני ברשת…") + "</div>") : ''}
     ${wine.price_note && !pricing.has(wine.id) ? `<div class="confidence">${esc(wine.price_note)}</div>` : ''}`;
 }
 
@@ -589,13 +590,13 @@ function newWine(data) {
 // ---------- כרטיס יין ----------
 
 const FIELDS = [
-  ['producer', 'יצרן'], ['name', 'שם היין'], ['vintage', 'בציר', 'number'],
-  ['country', 'מדינה'], ['region', 'אזור'], ['appellation', 'אפלסיון (לקבוצות וחיפוש)'],
-  ['score', 'ציון מבקרים (80-100)', 'number'], ['grapes', 'זנים (מופרדים בפסיק)', 'list'],
-  ['price_low', 'מחיר מינימום', 'number', true], ['price_high', 'מחיר מקסימום', 'number', true],
-  ['drink_from', 'לשתות משנת', 'number'], ['drink_until', 'לשתות עד שנת', 'number'],
-  ['peak', 'שנת שיא', 'number'], ['serving_temp', 'טמפרטורת הגשה'],
-  ['location', 'מיקום במרתף (מדף/תא)'], ['quantity', 'כמות', 'number'],
+  ['producer', t("יצרן")], ['name', t("שם היין")], ['vintage', t("בציר"), 'number'],
+  ['country', t("מדינה")], ['region', t("אזור")], ['appellation', t("אפלסיון (לקבוצות וחיפוש)")],
+  ['score', t("ציון מבקרים (80-100)"), 'number'], ['grapes', t("זנים (מופרדים בפסיק)"), 'list'],
+  ['price_low', t("מחיר מינימום"), 'number', true], ['price_high', t("מחיר מקסימום"), 'number', true],
+  ['drink_from', t("לשתות משנת"), 'number'], ['drink_until', t("לשתות עד שנת"), 'number'],
+  ['peak', t("שנת שיא"), 'number'], ['serving_temp', t("טמפרטורת הגשה")],
+  ['location', t("מיקום במרתף (מדף/תא)")], ['quantity', t("כמות"), 'number'],
 ];
 
 function profileBar(label, v) {
@@ -618,62 +619,62 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
 
   form.innerHTML = `
     <div class="dlg-head">
-      <button value="cancel" formnovalidate>✕ סגירה</button>
-      <strong>${isNew ? 'בקבוק חדש' : 'פרטי יין'}</strong>
-      <button value="save">שמירה</button>
+      <button value="cancel" formnovalidate>${t("✕ סגירה")}</button>
+      <strong>${isNew ? t("בקבוק חדש") : t("פרטי יין")}</strong>
+      <button value="save">${t("שמירה")}</button>
     </div>
     <div class="dlg-body">
-      ${dup ? `<div class="dup-note">🔁 היין הזה כבר במרתף (${dup.quantity} בקבוקים). בשמירה הוא יתווסף לאותה שורה ולא ייפתח כיין נפרד.</div>` : ''}
+      ${dup ? `<div class="dup-note">${t("🔁 היין הזה כבר במרתף (")}${dup.quantity}${t(" בקבוקים). בשמירה הוא יתווסף לאותה שורה ולא ייפתח כיין נפרד.")}</div>` : ''}
       <div class="hero">
         ${wine.photo ? `<div class="hero-photo">
           <img src="${wine.photo}" alt="" id="hero-img">
-          <button type="button" class="btn small" id="btn-bg">${wine.photoOriginal ? '↩️ תמונה מקורית' : '✨ רקע נקי'}</button>
+          <button type="button" class="btn small" id="btn-bg">${wine.photoOriginal ? t("↩️ תמונה מקורית") : t("✨ רקע נקי")}</button>
           <span class="confidence" id="bg-status" hidden></span>
         </div>` : `<div class="ph" style="font-size:3rem;display:grid;place-items:center">${TYPE_ICONS[wine.type] ?? '🍷'}</div>`}
         <div>
           <h2>${esc(wineTitle(wine))}</h2>
           <div class="meta">${flag(wine) ? `<span class="flag">${flag(wine)}</span> ` : ''}${esc([wine.vintage ?? 'NV', wine.region, wine.country].filter(Boolean).join(' · '))}</div>
-          ${wine.score ? `<div class="meta">🏅 ציון מבקרים: ${wine.score}</div>` : ''}
+          ${wine.score ? `<div class="meta">${t("🏅 ציון מבקרים: ")}${wine.score}</div>` : ''}
           ${wine.grapes?.length ? `<div class="meta">${esc(wine.grapes.join(', '))}</div>` : ''}
           <div id="price-block">${priceBlock(wine)}</div>
           ${status ? `<div class="tags"><span class="tag ${status.cls}">${status.label}</span></div>` : ''}
         </div>
       </div>
 
-      ${wine.tasting_notes ? `<div class="section-title">טעמים</div><p style="margin:0;line-height:1.6">${esc(wine.tasting_notes)}</p>` : ''}
+      ${wine.tasting_notes ? `<div class="section-title">${t("טעמים")}</div><p style="margin:0;line-height:1.6">${esc(wine.tasting_notes)}</p>` : ''}
       ${wine.aromas?.length ? `<div class="tags" style="margin-top:8px">${wine.aromas.map((a) => `<span class="tag">${esc(a)}</span>`).join('')}</div>` : ''}
-      ${wine.body || wine.acidity ? `<div class="section-title">פרופיל</div><div class="profile">
-        ${profileBar('גוף', wine.body)}${profileBar('מתיקות', wine.sweetness)}${profileBar('חומציות', wine.acidity)}${profileBar('טאנינים', wine.tannins)}
+      ${wine.body || wine.acidity ? `<div class="section-title">${t("פרופיל")}</div><div class="profile">
+        ${profileBar(t("גוף"), wine.body)}${profileBar(t("מתיקות"), wine.sweetness)}${profileBar(t("חומציות"), wine.acidity)}${profileBar(t("טאנינים"), wine.tannins)}
       </div>` : ''}
-      ${wine.drink_from ? `<div class="section-title">מתי לשתות</div><p style="margin:0"><span dir="ltr">${wine.drink_from}–${wine.drink_until}</span>${wine.peak ? ` · שיא ב-${wine.peak}` : ''}${wine.serving_temp ? ` · הגשה ב-${esc(wine.serving_temp)}` : ''}</p>` : ''}
+      ${wine.drink_from ? `<div class="section-title">${t("מתי לשתות")}</div><p style="margin:0"><span dir="ltr">${wine.drink_from}–${wine.drink_until}</span>${wine.peak ? `${t(" · שיא ב-")}${wine.peak}` : ''}${wine.serving_temp ? `${t(" · הגשה ב-")}${esc(wine.serving_temp)}` : ''}</p>` : ''}
       ${wine.decant ? `<p class="meta">🫗 ${esc(wine.decant)}</p>` : ''}
-      ${wine.food_pairing?.length ? `<div class="section-title">מתאים ל…</div><div class="tags">${wine.food_pairing.map((f) => `<span class="tag">${esc(f)}</span>`).join('')}</div>` : ''}
-      ${wine.ai && wine.confidence && wine.confidence !== 'high' ? `<p class="confidence">🤖 רמת ביטחון בזיהוי: ${wine.confidence === 'low' ? 'נמוכה' : 'בינונית'}${wine.confidence_note ? ` — ${esc(wine.confidence_note)}` : ''}. כדאי לבדוק את הפרטים.</p>` : ''}
+      ${wine.food_pairing?.length ? `<div class="section-title">${t("מתאים ל…")}</div><div class="tags">${wine.food_pairing.map((f) => `<span class="tag">${esc(f)}</span>`).join('')}</div>` : ''}
+      ${wine.ai && wine.confidence && wine.confidence !== 'high' ? `<p class="confidence">${t("🤖 רמת ביטחון בזיהוי: ")}${wine.confidence === 'low' ? t("נמוכה") : t("בינונית")}${wine.confidence_note ? ` — ${esc(wine.confidence_note)}` : ''}${t(". כדאי לבדוק את הפרטים.")}</p>` : ''}
 
-      <div class="section-title">הדירוג וההערות שלי</div>
+      <div class="section-title">${t("הדירוג וההערות שלי")}</div>
       <div class="form">
-        <label>דירוג
+        <label>${t("דירוג")}
           <select name="rating">
             <option value="">—</option>
             ${[5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${Number(wine.rating) === n ? 'selected' : ''}>${'★'.repeat(n)}</option>`).join('')}
           </select>
         </label>
-        <label>הערות<textarea name="notes">${esc(wine.notes)}</textarea></label>
+        <label>${t("הערות")}<textarea name="notes">${esc(wine.notes)}</textarea></label>
       </div>
 
       <details ${edit ? 'open' : ''}>
-        <summary>✏️ עריכת פרטים</summary>
+        <summary>${t("✏️ עריכת פרטים")}</summary>
         <div class="form">
-          <label>סוג<select name="type"><option value="">—</option>${typeOptions}</select></label>
+          <label>${t("סוג")}<select name="type"><option value="">—</option>${typeOptions}</select></label>
           <div class="grid2">${fieldInputs}</div>
-          <label>טעמים<textarea name="tasting_notes">${esc(wine.tasting_notes)}</textarea></label>
+          <label>${t("טעמים")}<textarea name="tasting_notes">${esc(wine.tasting_notes)}</textarea></label>
         </div>
       </details>
 
-      ${wine.consumed?.length ? `<p class="meta">נפתחו ${wine.consumed.length} בקבוקים. אחרון: ${new Date(wine.consumed.at(-1)).toLocaleDateString('he-IL')}</p>` : ''}
-      <button type="button" class="btn" id="btn-prices">🔎 איפה לקנות ובכמה</button>
+      ${wine.consumed?.length ? `<p class="meta">${t("נפתחו ")}${wine.consumed.length}${t(" בקבוקים. אחרון: ")}${new Date(wine.consumed.at(-1)).toLocaleDateString(locale)}</p>` : ''}
+      <button type="button" class="btn" id="btn-prices">${t("🔎 איפה לקנות ובכמה")}</button>
       <div id="prices-out" class="msg ai" style="max-width:100%;margin-top:10px" hidden></div>
-      ${isNew ? '' : '<button type="button" class="btn ghost danger" id="btn-delete">🗑️ מחיקה מהמרתף</button>'}
+      ${isNew ? '' : ("<button type=\"button\" class=\"btn ghost danger\" id=\"btn-delete\">" + t("🗑️ מחיקה מהמרתף") + "</button>")}
     </div>`;
 
   form.dataset.id = wine.id;
@@ -714,12 +715,12 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     renderCellar();
     if (isNew) {
       showView('cellar');
-      toast(existing ? `🔁 היין כבר היה במרתף. עכשיו יש ${existing.quantity} בקבוקים` : 'נוסף למרתף 🍷');
+      toast(existing ? `${t("🔁 היין כבר היה במרתף. עכשיו יש ")}${existing.quantity}${t(" בקבוקים")}` : t("נוסף למרתף 🍷"));
     }
   };
 
   $('#btn-delete', form)?.addEventListener('click', async () => {
-    if (!confirm('למחוק את היין מהמרתף?')) return;
+    if (!confirm(t("למחוק את היין מהמרתף?"))) return;
     await deleteWine(wine.id);
     wines = wines.filter((w) => w.id !== wine.id);
     dlg.close();
@@ -736,8 +737,8 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
       btn.disabled = true;
       status.hidden = false;
       status.textContent = bgEngineLoaded
-        ? 'מנקה רקע…'
-        : 'מכין את מנוע הסרת הרקע… בפעם הראשונה זה מוריד כ-40MB ולוקח עד דקה.';
+        ? t("מנקה רקע…")
+        : t("מכין את מנוע הסרת הרקע… בפעם הראשונה זה מוריד כ-40MB ולוקח עד דקה.");
       try {
         // התמונה המלאה (לפני החיתוך) נותנת למנוע הקשר ומונעת שאריות רקע בשוליים
         const clean = wine.photoFull
@@ -747,14 +748,14 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
         wine.photo = clean;
         status.hidden = true;
       } catch {
-        status.textContent = 'לא הצלחתי לנקות את הרקע. נסו שוב עם חיבור טוב לאינטרנט.';
+        status.textContent = t("לא הצלחתי לנקות את הרקע. נסו שוב עם חיבור טוב לאינטרנט.");
         btn.disabled = false;
         return;
       }
       btn.disabled = false;
     }
     $('#hero-img', form).src = wine.photo;
-    btn.textContent = wine.photoOriginal ? '↩️ תמונה מקורית' : '✨ רקע נקי';
+    btn.textContent = wine.photoOriginal ? t("↩️ תמונה מקורית") : t("✨ רקע נקי");
     if (wines.includes(wine)) {
       await putWine(wine);
       renderCellar();
@@ -765,10 +766,10 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     const out = $('#prices-out', form);
     out.hidden = false;
     out.classList.add('loading');
-    out.textContent = 'מחפש ברשת…';
+    out.textContent = t("מחפש ברשת…");
     e.target.disabled = true;
     try {
-      const { findPrices } = await import('./ai.js?v=19');
+      const { findPrices } = await import('./ai.js?v=21');
       out.innerHTML = linkify(await findPrices(wine, settings));
     } catch (err) {
       out.textContent = `⚠️ ${err.message}`;
@@ -786,7 +787,7 @@ function linkify(text) {
   return esc(text)
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">קישור</a>');
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, ("$1<a href=\"$2\" target=\"_blank\" rel=\"noopener\">" + t("קישור") + "</a>"));
 }
 
 // ---------- סומלייה ----------
@@ -804,9 +805,9 @@ async function ask(question) {
   if (!question.trim()) return;
   addMsg('user', esc(question));
   chatHistory.push({ role: 'user', content: question });
-  const pending = addMsg('ai loading', 'חושב… 🍷');
+  const pending = addMsg('ai loading', t("חושב… 🍷"));
   try {
-    const { askSommelier } = await import('./ai.js?v=19');
+    const { askSommelier } = await import('./ai.js?v=21');
     const answer = await askSommelier(chatHistory, wines, settings);
     chatHistory.push({ role: 'assistant', content: answer });
     pending.classList.remove('loading');
@@ -847,10 +848,10 @@ function renderShopping() {
       <div>
         <h3>${esc(wineTitle(w))}</h3>
         <div class="meta">${esc(w.vintage ?? 'NV')}${midPrice(w) ? ` · ~${money(midPrice(w))}` : ''}</div>
-        <button class="btn small ghost" data-act="remove" style="margin-top:6px">הסרה מהרשימה</button>
+        <button class="btn small ghost" data-act="remove" style="margin-top:6px">${t("הסרה מהרשימה")}</button>
       </div>
       <div class="qty">
-        <span class="meta">כמות</span>
+        <span class="meta">${t("כמות")}</span>
         <input class="shop-qty" type="number" min="1" inputmode="numeric" value="${w.reorderQty ?? settings.reorderQty}" data-act="qty">
       </div>
     </li>`).join('');
@@ -880,7 +881,7 @@ function getShops() {
   if (!Array.isArray(settings.shops)) {
     // מעבר מהגרסה הקודמת: חנות אחת בהגדרות
     settings.shops = settings.storeName || settings.storePhone || settings.storeEmail
-      ? [{ id: 'shop1', name: settings.storeName || 'החנות שלי', whatsapp: settings.storePhone || '', email: settings.storeEmail || '', website: '' }]
+      ? [{ id: 'shop1', name: settings.storeName || t("החנות שלי"), whatsapp: settings.storePhone || '', email: settings.storeEmail || '', website: '' }]
       : [];
     settings.selectedShop = settings.shops[0]?.id ?? null;
     saveSettings(settings);
@@ -898,13 +899,13 @@ let editingShop = null; // מזהה החנות שבעריכה, או 'new'
 function shopForm(shop = {}) {
   return `
     <div class="shop shop-form">
-      <label>שם החנות<input id="shop-name" type="text" value="${esc(shop.name)}" placeholder="למשל: Oinou Yinesthai"></label>
-      <label>וואטסאפ (עם קידומת מדינה)<input id="shop-whatsapp" type="tel" inputmode="tel" dir="ltr" value="${esc(shop.whatsapp)}" placeholder="+357 99 123456"></label>
-      <label>מייל (רשות)<input id="shop-email" type="email" dir="ltr" value="${esc(shop.email)}" placeholder="orders@shop.com"></label>
-      <label>אתר (רשות, לבדיקת מחירים)<input id="shop-website" type="url" dir="ltr" value="${esc(shop.website)}" placeholder="https://"></label>
+      <label>${t("שם החנות")}<input id="shop-name" type="text" value="${esc(shop.name)}" placeholder="${t("למשל: Oinou Yinesthai")}"></label>
+      <label>${t("וואטסאפ (עם קידומת מדינה)")}<input id="shop-whatsapp" type="tel" inputmode="tel" dir="ltr" value="${esc(shop.whatsapp)}" placeholder="+357 99 123456"></label>
+      <label>${t("מייל (רשות)")}<input id="shop-email" type="email" dir="ltr" value="${esc(shop.email)}" placeholder="orders@shop.com"></label>
+      <label>${t("אתר (רשות, לבדיקת מחירים)")}<input id="shop-website" type="url" dir="ltr" value="${esc(shop.website)}" placeholder="https://"></label>
       <div class="shop-actions">
-        <button type="button" class="btn small primary" data-shop-act="save">שמירה</button>
-        <button type="button" class="btn small" data-shop-act="cancel">ביטול</button>
+        <button type="button" class="btn small primary" data-shop-act="save">${t("שמירה")}</button>
+        <button type="button" class="btn small" data-shop-act="cancel">${t("ביטול")}</button>
       </div>
     </div>`;
 }
@@ -921,17 +922,17 @@ function renderMyShops() {
       <div class="shop-links">
         ${shop.whatsapp ? `<span dir="ltr">💬 ${esc(shop.whatsapp)}</span>` : ''}
         ${shop.email ? `<span dir="ltr">✉️ ${esc(shop.email)}</span>` : ''}
-        ${shop.website ? `<a href="${esc(shop.website)}" target="_blank" rel="noopener">🌐 אתר</a>` : ''}
+        ${shop.website ? `<a href="${esc(shop.website)}" target="_blank" rel="noopener">${t("🌐 אתר")}</a>` : ''}
       </div>
       <div class="shop-actions">
-        <button type="button" class="btn small ghost" data-shop-act="edit">✏️ עריכה</button>
-        <button type="button" class="btn small ghost danger" data-shop-act="delete">🗑️ מחיקה</button>
+        <button type="button" class="btn small ghost" data-shop-act="edit">${t("✏️ עריכה")}</button>
+        <button type="button" class="btn small ghost danger" data-shop-act="delete">${t("🗑️ מחיקה")}</button>
       </div>
     </div>`)).join('');
   $('#my-shops').innerHTML = rows
-    + (editingShop === 'new' ? shopForm() : '<button type="button" class="btn" data-shop-act="add">➕ הוספת חנות</button>');
+    + (editingShop === 'new' ? shopForm() : ("<button type=\"button\" class=\"btn\" data-shop-act=\"add\">" + t("➕ הוספת חנות") + "</button>"));
   const orderTo = $('#order-to');
-  orderTo.textContent = current ? `ההזמנה תישלח ל: ${current.name}` : 'הוסיפו חנות כדי לשלוח אליה הזמנה.';
+  orderTo.textContent = current ? `${t("ההזמנה תישלח ל: ")}${current.name}` : t("הוסיפו חנות כדי לשלוח אליה הזמנה.");
 }
 
 $('#my-shops').addEventListener('change', (e) => {
@@ -951,7 +952,7 @@ $('#my-shops').addEventListener('click', (e) => {
   else if (act === 'cancel') editingShop = null;
   else if (act === 'delete') {
     const shop = shops.find((x) => x.id === id);
-    if (!confirm(`למחוק את ${shop.name} מהחנויות שלי?`)) return;
+    if (!confirm(`${t("למחוק את ")}${shop.name}${t(" מהחנויות שלי?")}`)) return;
     settings.shops = shops.filter((x) => x.id !== id);
     saveSettings(settings);
   } else if (act === 'save') {
@@ -962,7 +963,7 @@ $('#my-shops').addEventListener('click', (e) => {
       website: $('#shop-website').value.trim(),
     };
     if (!data.name) {
-      toast('כתבו את שם החנות');
+      toast(t("כתבו את שם החנות"));
       return;
     }
     if (data.website && !/^https?:\/\//.test(data.website)) data.website = `https://${data.website}`;
@@ -976,22 +977,29 @@ $('#my-shops').addEventListener('click', (e) => {
     settings.shops = shops;
     saveSettings(settings);
     editingShop = null;
-    toast(`✓ ${data.name} נשמרה`);
+    toast(`✓ ${data.name}${t(" נשמרה")}`);
   }
   renderMyShops();
 });
 
+// ההזמנה לחנות תמיד באנגלית
 function orderText() {
   const shop = selectedShop();
-  const lines = shoppingItems().map((w) =>
-    `• ${w.reorderQty ?? settings.reorderQty} × ${[w.producer, w.name].filter(Boolean).join(' ')}${w.vintage ? ` ${w.vintage}` : ''}`);
+  const lines = shoppingItems().map((w) => {
+    const qty = w.reorderQty ?? settings.reorderQty;
+    const name = [w.producer, w.name].filter(Boolean).join(' ');
+    return `• ${qty} × ${name}${w.vintage ? ` ${w.vintage}` : ' (NV)'}`;
+  });
   return [
-    `שלום${shop ? ` ${shop.name}` : ''},`,
-    'אשמח להזמין:',
+    `Hello${shop ? ` ${shop.name}` : ''},`,
+    '',
+    "I'd like to order:",
     ...lines,
     '',
-    'אם בציר מסוים לא זמין - בציר קרוב זה בסדר, רק לעדכן אותי.',
-    'תודה!',
+    'If a vintage is not available, a close vintage is fine - please let me know.',
+    'Please confirm availability, total price and delivery time.',
+    '',
+    'Thank you!',
     settings.myName,
   ].filter((l) => l !== undefined).join('\n').trim();
 }
@@ -999,26 +1007,26 @@ function orderText() {
 $('#btn-order-wa').addEventListener('click', () => {
   const phone = (selectedShop()?.whatsapp ?? '').replace(/\D/g, '');
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(orderText())}`;
-  if (!phone) toast('לחנות שנבחרה אין מספר וואטסאפ - בחרו איש קשר בוואטסאפ');
+  if (!phone) toast(t("לחנות שנבחרה אין מספר וואטסאפ - בחרו איש קשר בוואטסאפ"));
   window.open(url, '_blank');
 });
 $('#btn-order-mail').addEventListener('click', () => {
-  const subject = encodeURIComponent('הזמנת יין');
+  const subject = encodeURIComponent('Wine order');
   window.location.href = `mailto:${selectedShop()?.email ?? ''}?subject=${subject}&body=${encodeURIComponent(orderText())}`;
 });
 $('#btn-order-copy').addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(orderText());
-    toast('ההזמנה הועתקה 📋');
+    toast(t("ההזמנה הועתקה 📋"));
   } catch {
-    toast('לא הצלחתי להעתיק');
+    toast(t("לא הצלחתי להעתיק"));
   }
 });
 
 // ---------- הגדרות וגיבוי ----------
 
 const SETTING_INPUTS = {
-  apiKey: '#set-apikey', currency: '#set-currency',
+  apiKey: '#set-apikey', currency: '#set-currency', language: '#set-language',
   shopCountry: '#set-shop-country', shopCity: '#set-shop-city', myName: '#set-my-name', reorderQty: '#set-reorder-qty',
 };
 
@@ -1035,7 +1043,13 @@ $('#settings-form').addEventListener('submit', (e) => {
   settings.reorderQty = Math.max(1, Number(settings.reorderQty) || 1);
   settings.webSearch = $('#set-websearch').checked;
   settings.fastMode = $('#set-fast').checked;
+  const langChanged = (settings.language || 'he') !== (isEn ? 'en' : 'he');
   saveSettings(settings);
+  // שינוי שפה: טוענים מחדש כדי שכל הטקסטים ייבנו בשפה החדשה
+  if (langChanged) {
+    location.reload();
+    return;
+  }
   const saved = $('#settings-saved');
   saved.hidden = false;
   setTimeout(() => { saved.hidden = true; }, 1800);
@@ -1050,18 +1064,18 @@ $('#btn-test').addEventListener('click', async (e) => {
   out.className = 'test-result';
   if (!key) {
     out.classList.add('bad');
-    out.textContent = 'השדה של המפתח ריק. הדביקו את המפתח ונסו שוב.';
+    out.textContent = t("השדה של המפתח ריק. הדביקו את המפתח ונסו שוב.");
     return;
   }
-  out.textContent = 'בודק…';
+  out.textContent = t("בודק…");
   e.target.disabled = true;
   try {
-    const { testConnection } = await import('./ai.js?v=19');
+    const { testConnection } = await import('./ai.js?v=21');
     await testConnection({ ...settings, apiKey: key });
     settings.apiKey = key;
     saveSettings(settings);
     out.classList.add('ok');
-    out.textContent = '✅ החיבור תקין. המפתח נשמר ואפשר לצלם בקבוקים.';
+    out.textContent = t("✅ החיבור תקין. המפתח נשמר ואפשר לצלם בקבוקים.");
   } catch (err) {
     out.classList.add('bad');
     out.textContent = `❌ ${err.message}`;
@@ -1078,7 +1092,7 @@ async function exportCellar() {
   const file = new File([JSON.stringify({ version: 1, exported: new Date().toISOString(), wines })], name, { type: 'application/json' });
   if (navigator.canShare?.({ files: [file] })) {
     try {
-      await navigator.share({ files: [file], title: 'המרתף שלי' });
+      await navigator.share({ files: [file], title: t("המרתף שלי") });
       return;
     } catch (err) {
       if (err.name === 'AbortError') return;
@@ -1095,7 +1109,7 @@ async function exportCellar() {
 async function importCellar(file) {
   const data = JSON.parse(await file.text());
   if (!Array.isArray(data.wines)) throw new Error('bad file');
-  await saveBackup(wines, 'לפני ייבוא');
+  await saveBackup(wines, t("לפני ייבוא"));
   for (const w of data.wines) await putWine(w);
   wines = await getAllWines();
   await mergeExistingDuplicates();
@@ -1114,9 +1128,9 @@ for (const input of ['#import-file', '#transfer-import']) {
     try {
       const n = await importCellar(file);
       showView('cellar');
-      toast(`✓ הועברו ${n} יינות למרתף`, 4000);
+      toast(`${t("✓ הועברו ")}${n}${t(" יינות למרתף")}`, 4000);
     } catch {
-      toast('הקובץ לא נקרא. ודאו שבחרתם את קובץ ה-cellar שנשמר.');
+      toast(t("הקובץ לא נקרא. ודאו שבחרתם את קובץ ה-cellar שנשמר."));
     } finally {
       e.target.value = '';
     }
@@ -1164,32 +1178,32 @@ async function applyRemote({ upsert, remove }) {
 }
 
 function startSync() {
-  sync.start(() => wines, applyRemote, setSyncStatus).catch((err) => setSyncStatus(`שגיאת סנכרון: ${err.message}`, false));
+  sync.start(() => wines, applyRemote, setSyncStatus).catch((err) => setSyncStatus(`${t("שגיאת סנכרון: ")}${err.message}`, false));
 }
 
 function renderShared() {
   const box = $('#shared-box');
   if (!sync.syncConfigured()) {
-    box.innerHTML = '<p class="hint small">המרתף המשותף עוד לא הופעל. צריך לחבר פרויקט Firebase (פעם אחת).</p>';
+    box.innerHTML = ("<p class=\"hint small\">" + t("המרתף המשותף עוד לא הופעל. צריך לחבר פרויקט Firebase (פעם אחת).") + "</p>");
     return;
   }
   const code = sync.getCode();
   if (code) {
     box.innerHTML = `
-      <p class="hint small">המרתף הזה משותף. כל מי שמחובר עם אותו קוד רואה את אותם יינות, וכל שינוי מתעדכן אצל כולם.</p>
+      <p class="hint small">${t("המרתף הזה משותף. כל מי שמחובר עם אותו קוד רואה את אותם יינות, וכל שינוי מתעדכן אצל כולם.")}</p>
       <div class="share-code" dir="ltr">${sync.formatCode(code)}</div>
       <p id="sync-status" class="sync-status"></p>
-      <button type="button" class="btn" id="btn-resync">🔄 סנכרון מחדש</button>
-      <button type="button" class="btn primary" id="btn-share-code">📤 שליחת הקוד לאשתי / לבן משפחה</button>
-      <button type="button" class="btn ghost danger" id="btn-leave">ניתוק מהמרתף המשותף</button>`;
-    setSyncStatus(syncState.text || 'מתחבר…', syncState.ok);
+      <button type="button" class="btn" id="btn-resync">${t("🔄 סנכרון מחדש")}</button>
+      <button type="button" class="btn primary" id="btn-share-code">${t("📤 שליחת הקוד לאשתי / לבן משפחה")}</button>
+      <button type="button" class="btn ghost danger" id="btn-leave">${t("ניתוק מהמרתף המשותף")}</button>`;
+    setSyncStatus(syncState.text || t("מתחבר…"), syncState.ok);
     $('#btn-share-code').onclick = () => shareCode(code);
     $('#btn-resync').onclick = () => {
-      setSyncStatus('מתחבר…', null);
+      setSyncStatus(t("מתחבר…"), null);
       startSync();
     };
     $('#btn-leave').onclick = () => {
-      if (!confirm('לנתק את הטלפון הזה מהמרתף המשותף? היינות יישארו בטלפון, אבל שינויים כבר לא יסונכרנו.')) return;
+      if (!confirm(t("לנתק את הטלפון הזה מהמרתף המשותף? היינות יישארו בטלפון, אבל שינויים כבר לא יסונכרנו."))) return;
       sync.leave();
       setSyncStatus('', null);
       renderShared();
@@ -1197,48 +1211,48 @@ function renderShared() {
     return;
   }
   box.innerHTML = `
-    <p class="hint small">מרתף משותף מאפשר לכמה טלפונים לראות ולעדכן את אותו מרתף.</p>
-    <button type="button" class="btn primary" id="btn-create-shared">➕ יצירת מרתף משותף מהיינות שלי</button>
-    <p class="hint small" style="margin-top:14px">קיבלת קוד מרתף? הדביקו אותו כאן:</p>
+    <p class="hint small">${t("מרתף משותף מאפשר לכמה טלפונים לראות ולעדכן את אותו מרתף.")}</p>
+    <button type="button" class="btn primary" id="btn-create-shared">${t("➕ יצירת מרתף משותף מהיינות שלי")}</button>
+    <p class="hint small" style="margin-top:14px">${t("קיבלת קוד מרתף? הדביקו אותו כאן:")}</p>
     <input id="join-code" type="text" dir="ltr" autocomplete="off" autocapitalize="off" placeholder="xxxx-xxxx-xxxx-xxxx-xxxx-xxxx">
-    <button type="button" class="btn" id="btn-join">🔗 הצטרפות למרתף</button>
+    <button type="button" class="btn" id="btn-join">${t("🔗 הצטרפות למרתף")}</button>
     <p id="sync-status" class="sync-status"></p>`;
   $('#btn-create-shared').onclick = async (e) => {
     e.target.disabled = true;
-    setSyncStatus('מעלה את המרתף…', null);
+    setSyncStatus(t("מעלה את המרתף…"), null);
     try {
       await sync.create(wines);
       startSync();
       renderShared();
-      toast('✓ נוצר מרתף משותף. שלחו את הקוד לבני הבית');
+      toast(t("✓ נוצר מרתף משותף. שלחו את הקוד לבני הבית"));
     } catch (err) {
-      setSyncStatus(`לא הצלחתי ליצור: ${err.message}`, false);
+      setSyncStatus(`${t("לא הצלחתי ליצור: ")}${err.message}`, false);
       e.target.disabled = false;
     }
   };
   $('#btn-join').onclick = async (e) => {
     const code = sync.cleanCode($('#join-code').value);
     if (code.length < 20) {
-      setSyncStatus('הקוד קצר מדי. העתיקו את כל הקוד שקיבלתם.', false);
+      setSyncStatus(t("הקוד קצר מדי. העתיקו את כל הקוד שקיבלתם."), false);
       return;
     }
     e.target.disabled = true;
-    setSyncStatus('מתחבר…', null);
+    setSyncStatus(t("מתחבר…"), null);
     try {
       const n = await sync.join(code);
-      if (n === 0 && !confirm('המרתף עם הקוד הזה ריק. להצטרף בכל זאת?')) {
+      if (n === 0 && !confirm(t("המרתף עם הקוד הזה ריק. להצטרף בכל זאת?"))) {
         sync.leave();
         e.target.disabled = false;
         setSyncStatus('', null);
         return;
       }
-      await saveBackup(wines, 'לפני הצטרפות למרתף משותף');
+      await saveBackup(wines, t("לפני הצטרפות למרתף משותף"));
       startSync();
       renderShared();
-      toast(`✓ הצטרפת למרתף המשותף (${n} יינות)`);
+      toast(`${t("✓ הצטרפת למרתף המשותף (")}${n}${t(" יינות)")}`);
     } catch (err) {
       sync.leave();
-      setSyncStatus(err.code === 'permission-denied' ? 'הקוד לא נכון או שאין הרשאה.' : `לא הצלחתי להתחבר: ${err.message}`, false);
+      setSyncStatus(err.code === 'permission-denied' ? t("הקוד לא נכון או שאין הרשאה.") : `${t("לא הצלחתי להתחבר: ")}${err.message}`, false);
       e.target.disabled = false;
     }
   };
@@ -1246,10 +1260,10 @@ function renderShared() {
 
 async function shareCode(code) {
   const url = location.href.split('#')[0];
-  const text = `הצטרפות למרתף היין שלנו 🍷
-1. פתחי ב-Safari: ${url}
-2. שיתוף ← "הוסף למסך הבית", ופתחי את האפליקציה מהאייקון
-3. הגדרות ← מרתף משותף ← הדביקי את הקוד:
+  const text = `${t("הצטרפות למרתף היין שלנו 🍷")}
+${t("1. פתחי ב-Safari: ")}${url}
+${t("2. שיתוף ← ")}"${t("הוסף למסך הבית")}"${t(", ופתחי את האפליקציה מהאייקון")}
+${t("3. הגדרות ← מרתף משותף ← הדביקי את הקוד:")}
 ${sync.formatCode(code)}`;
   try {
     if (navigator.share) {
@@ -1261,9 +1275,9 @@ ${sync.formatCode(code)}`;
   }
   try {
     await navigator.clipboard.writeText(text);
-    toast('ההודעה עם הקוד הועתקה 📋');
+    toast(t("ההודעה עם הקוד הועתקה 📋"));
   } catch {
-    toast(`הקוד: ${sync.formatCode(code)}`, 8000);
+    toast(`${t("הקוד: ")}${sync.formatCode(code)}`, 8000);
   }
 }
 
@@ -1274,17 +1288,17 @@ async function mergeExistingDuplicates() {
   const { kept, removed, changed } = mergeDuplicates(wines.map((w) => ({ ...w })));
   if (!removed.length) return;
   // גיבוי מלא לפני כל שינוי אוטומטי, כדי שאפשר יהיה לשחזר מההגדרות
-  await saveBackup(wines, 'לפני איחוד כפולים');
+  await saveBackup(wines, t("לפני איחוד כפולים"));
   for (const w of changed) await putWine(w);
   for (const w of removed) await deleteWine(w.id);
   wines = kept;
-  toast(`🔁 איחדתי ${removed.length} ${removed.length === 1 ? 'יין כפול' : 'יינות כפולים'}`, 4000);
+  toast(`${t("🔁 איחדתי ")}${removed.length} ${removed.length === 1 ? t("יין כפול") : t("יינות כפולים")}`, 4000);
 }
 
 // השלמת דגל, אזור וציון ליינות ישנים, ברקע ואחד אחד
 async function enrichOldWines() {
   if (!settings.apiKey) return;
-  const { enrichWine } = await import('./ai.js?v=19');
+  const { enrichWine } = await import('./ai.js?v=21');
   for (const wine of wines.filter((w) => !w.enrichedAt)) {
     try {
       const { country_he, region_he, ...extra } = await enrichWine(wine, settings);
@@ -1292,7 +1306,8 @@ async function enrichOldWines() {
         if (v != null && (wine[k] == null || wine[k] === '')) wine[k] = v;
       }
       // מדינה ואזור שנשמרו בשפה אחרת (למשל רוסית) מוחלפים בעברית
-      const notHebrew = (t) => !t || !/[\u0590-\u05FF]/.test(t);
+      // בעברית: מחליפים טקסט שאינו עברי; באנגלית: מחליפים טקסט בכתב קירילי
+      const notHebrew = (text) => !text || (isEn ? /[\u0400-\u04FF]/.test(text) : !/[\u0590-\u05FF]/.test(text));
       if (country_he && notHebrew(wine.country)) wine.country = country_he;
       if (region_he && notHebrew(wine.region)) wine.region = region_he;
       wine.enrichedAt = Date.now();
@@ -1308,7 +1323,7 @@ async function enrichOldWines() {
 async function dailyBackup() {
   const [last] = await listBackups();
   if (!last || Date.now() - last.id > 24 * 3600 * 1000 || last.count !== wines.length) {
-    await saveBackup(wines, 'גיבוי יומי');
+    await saveBackup(wines, t("גיבוי יומי"));
   }
 }
 
@@ -1319,39 +1334,40 @@ async function renderStorageInfo() {
   const backups = await listBackups().catch(() => []);
   const persisted = await navigator.storage?.persisted?.().catch(() => null);
   const rows = [
-    ['נפתח מתוך', standalone ? '📱 אייקון במסך הבית' : '🧭 דפדפן Safari'],
-    ['יינות שמורים כאן', stored ? `${stored.length} יינות · ${stored.reduce((n, w) => n + Math.max(0, w.quantity ?? 0), 0)} בקבוקים` : 'לא ניתן לקרוא'],
-    ['גיבויים אוטומטיים', backups.length ? `${backups.length} (הגדול: ${Math.max(...backups.map((b) => b.count))} יינות)` : 'אין'],
-    ['הגנה ממחיקה אוטומטית', persisted ? '✓ פעילה' : 'לא פעילה'],
+    [t("נפתח מתוך"), standalone ? t("📱 אייקון במסך הבית") : t("🧭 דפדפן Safari")],
+    [t("יינות שמורים כאן"), stored ? `${stored.length}${t(" יינות · ")}${stored.reduce((n, w) => n + Math.max(0, w.quantity ?? 0), 0)}${t(" בקבוקים")}` : t("לא ניתן לקרוא")],
+    [t("גיבויים אוטומטיים"), backups.length ? `${backups.length}${t(" (הגדול: ")}${Math.max(...backups.map((b) => b.count))}${t(" יינות)")}` : t("אין")],
+    [t("הגנה ממחיקה אוטומטית"), persisted ? t("✓ פעילה") : t("לא פעילה")],
   ];
   $('#storage-info').innerHTML = rows.map(([k, v]) => `<div class="backup-row"><span>${k}</span><b>${v}</b></div>`).join('')
-    + (standalone ? '' : '<p class="hint small">⚠️ ב-Safari המידע נשמר בנפרד מהאפליקציה שבמסך הבית, ו-iOS עלול למחוק אותו אחרי 7 ימים בלי שימוש. עדיף לעבוד רק מהאייקון שבמסך הבית.</p>');
+    + (standalone ? '' : ("<p class=\"hint small\">" + t("⚠️ ב-Safari המידע נשמר בנפרד מהאפליקציה שבמסך הבית, ו-iOS עלול למחוק אותו אחרי 7 ימים בלי שימוש. עדיף לעבוד רק מהאייקון שבמסך הבית.") + "</p>"));
 }
 
 async function renderBackups() {
   const backups = await listBackups().catch(() => []);
   $('#backup-list').innerHTML = backups.length
     ? backups.map((b) => `<div class="backup-row">
-        <span>${new Date(b.id).toLocaleString('he-IL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${b.count} יינות · ${esc(b.reason)}</span>
-        <button type="button" class="btn small" data-restore="${b.id}">שחזור</button>
+        <span>${new Date(b.id).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${b.count}${t(" יינות · ")}${esc(b.reason)}</span>
+        <button type="button" class="btn small" data-restore="${b.id}">${t("שחזור")}</button>
       </div>`).join('')
-    : '<p class="hint small">עוד אין גיבויים אוטומטיים.</p>';
+    : ("<p class=\"hint small\">" + t("עוד אין גיבויים אוטומטיים.") + "</p>");
 }
 
 $('#backup-list').addEventListener('click', async (e) => {
   const id = Number(e.target.dataset.restore);
   if (!id) return;
-  if (!confirm('לשחזר את המרתף לגיבוי הזה? המצב הנוכחי יישמר קודם כגיבוי נוסף.')) return;
-  await saveBackup(wines, 'לפני שחזור');
+  if (!confirm(t("לשחזר את המרתף לגיבוי הזה? המצב הנוכחי יישמר קודם כגיבוי נוסף."))) return;
+  await saveBackup(wines, t("לפני שחזור"));
   wines = await restoreBackup(id);
   sync.replaceAll(wines).catch(() => {});
   Object.assign(cellarView, { group: null, region: null });
   renderCellar();
   renderBackups();
-  toast(`✓ שוחזרו ${wines.length} יינות`);
+  toast(`${t("✓ שוחזרו ")}${wines.length}${t(" יינות")}`);
 });
 
 async function init() {
+  translatePage();
   fillSettings();
   wines = await getAllWines();
   await dailyBackup().catch(() => {});
@@ -1365,7 +1381,7 @@ async function init() {
   renderBackups();
   enrichOldWines();
   if (!settings.apiKey) {
-    toast('כדי לזהות יינות מתמונה, הוסיפו מפתח Claude API בהגדרות ⚙️', 4500);
+    toast(t("כדי לזהות יינות מתמונה, הוסיפו מפתח Claude API בהגדרות ⚙️"), 4500);
   }
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

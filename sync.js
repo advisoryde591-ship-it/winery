@@ -1,6 +1,7 @@
 // מרתף משותף: סנכרון היינות דרך Firestore בין כמה טלפונים שיודעים את אותו קוד מרתף.
 // המקור לתצוגה נשאר ה-IndexedDB המקומי; כאן רק מעבירים שינויים לענן וממנו.
-import { firebaseConfig } from './firebase-config.js?v=19';
+import { firebaseConfig } from './firebase-config.js?v=21';
+import { t } from './i18n.js?v=21';
 
 const CODE_KEY = 'cellar.sharedCode';
 const LAST_SYNC_KEY = 'cellar.lastSyncAt';
@@ -136,18 +137,18 @@ export async function start(localWinesFn, apply, onStatus) {
   stop();
   const code = getCode();
   if (!code || !syncConfigured()) return;
-  onStatus('מתחבר…', null);
+  onStatus(t("מתחבר…"), null);
   await firestore();
   let first = true;
   unsubscribe = fb.onSnapshot(winesRef(code), { includeMetadataChanges: true }, async (snap) => {
     // בלי חיבור Firebase מחזיר קודם רשימה מהזיכרון (לפעמים ריקה). משווים רק מול תשובה אמיתית מהשרת,
     // אחרת יינות היו נמחקים מהטלפון כאילו נמחקו בטלפון אחר.
     if (snap.metadata.fromCache) {
-      onStatus(first ? 'ממתין לחיבור לאינטרנט…' : 'אין חיבור כרגע. השינויים יסונכרנו כשיחזור.', null);
+      onStatus(first ? t("ממתין לחיבור לאינטרנט…") : t("אין חיבור כרגע. השינויים יסונכרנו כשיחזור."), null);
       if (first) return;
     }
     if (!first && !snap.docChanges().length) {
-      onStatus('מסונכרן ✓', true);
+      onStatus(t("מסונכרן ✓"), true);
       return;
     }
     try {
@@ -188,15 +189,15 @@ export async function start(localWinesFn, apply, onStatus) {
         if (upsert.length || remove.length) await apply({ upsert, remove });
       }
       if (!snap.metadata.fromCache) setLastSync(Date.now());
-      onStatus('מסונכרן ✓', true);
+      onStatus(t("מסונכרן ✓"), true);
     } catch (err) {
       first = true; // בפעם הבאה שמגיעים נתונים מהשרת, מנסים שוב השוואה מלאה
-      onStatus(`שגיאת סנכרון (${err.code ?? err.name}): ${err.message}`, false);
+      onStatus(`${t("שגיאת סנכרון (")}${err.code ?? err.name}): ${err.message}`, false);
     }
   }, (err) => {
     onStatus(err.code === 'permission-denied'
-      ? 'אין הרשאה למרתף. בדקו את הקוד ואת כללי האבטחה ב-Firebase.'
-      : `שגיאת סנכרון (${err.code ?? err.name}): ${err.message}`, false);
+      ? t("אין הרשאה למרתף. בדקו את הקוד ואת כללי האבטחה ב-Firebase.")
+      : `${t("שגיאת סנכרון (")}${err.code ?? err.name}): ${err.message}`, false);
   });
 }
 
@@ -224,7 +225,7 @@ export async function join(code) {
     remote = await fb.getDocsFromServer(winesRef(code));
   } catch (err) {
     if (err.code === 'permission-denied') throw err;
-    throw new Error('אין חיבור לשרת. בדקו את האינטרנט ונסו שוב.');
+    throw new Error(t("אין חיבור לשרת. בדקו את האינטרנט ונסו שוב."));
   }
   setCode(code);
   setLastSync(0);

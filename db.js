@@ -65,6 +65,7 @@ export async function restoreBackup(id) {
 const SETTINGS_KEY = 'cellar.settings';
 const DEFAULT_SETTINGS = {
   apiKey: '',
+  language: 'he',
   webSearch: true,
   fastMode: true,
   currency: 'ILS',
