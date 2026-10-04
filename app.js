@@ -544,6 +544,34 @@ $('#settings-form').addEventListener('submit', (e) => {
   renderCellar();
 });
 
+$('#btn-test').addEventListener('click', async (e) => {
+  const out = $('#test-result');
+  // בודקים את מה שכתוב בשדה כרגע, גם אם עוד לא לחצו "שמירה"
+  const key = $('#set-apikey').value.trim();
+  out.hidden = false;
+  out.className = 'test-result';
+  if (!key) {
+    out.classList.add('bad');
+    out.textContent = 'השדה של המפתח ריק. הדביקו את המפתח ונסו שוב.';
+    return;
+  }
+  out.textContent = 'בודק…';
+  e.target.disabled = true;
+  try {
+    const { testConnection } = await import('./ai.js');
+    await testConnection({ ...settings, apiKey: key });
+    settings.apiKey = key;
+    saveSettings(settings);
+    out.classList.add('ok');
+    out.textContent = '✅ החיבור תקין. המפתח נשמר ואפשר לצלם בקבוקים.';
+  } catch (err) {
+    out.classList.add('bad');
+    out.textContent = `❌ ${err.message}`;
+  } finally {
+    e.target.disabled = false;
+  }
+});
+
 $('#btn-export').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify({ version: 1, exported: new Date().toISOString(), wines }, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');

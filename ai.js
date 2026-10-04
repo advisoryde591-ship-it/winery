@@ -11,23 +11,79 @@ function client(settings) {
   if (!settings.apiKey) {
     throw new Error('חסר מפתח Claude API. הוסיפו אותו במסך ההגדרות.');
   }
-  return new Anthropic({ apiKey: settings.apiKey, dangerouslyAllowBrowser: true });
+  return new Anthropic({ apiKey: settings.apiKey.trim(), dangerouslyAllowBrowser: true });
 }
 
 // שליחה עם fallback בצד השרת, והמשך אוטומטי כשחיפוש ברשת עוצר באמצע (pause_turn).
+// הודעת שגיאה ברורה בעברית לפי סוג התקלה מול ה-API
+function friendlyError(err) {
+  const detail = err?.error?.error?.message || err?.message || '';
+  if (err instanceof Anthropic.AuthenticationError) {
+    return new Error('המפתח לא תקין (401). ודאו שהעתקתם את כל המפתח, שהוא מתחיל ב-sk-ant-api, ושהוא לא נמחק בקונסול.');
+  }
+  if (err instanceof Anthropic.PermissionDeniedError) {
+    return new Error(`למפתח אין הרשאה (403): ${detail}`);
+  }
+  if (err instanceof Anthropic.NotFoundError) {
+    return new Error(`המודל לא זמין בחשבון הזה (404): ${detail}`);
+  }
+  if (err instanceof Anthropic.RateLimitError) {
+    return new Error('יותר מדי בקשות ברגע זה (429). חכו דקה ונסו שוב.');
+  }
+  if (err instanceof Anthropic.BadRequestError && /credit balance/i.test(detail)) {
+    return new Error('אין קרדיט בחשבון ה-API. טוענים קרדיט ב-console.anthropic.com ← Billing.');
+  }
+  if (err instanceof Anthropic.APIConnectionError) {
+    return new Error('אין חיבור לשרת של Claude. בדקו את האינטרנט ונסו שוב.');
+  }
+  if (err instanceof Anthropic.APIError) {
+    return new Error(`שגיאה מה-API (${err.status ?? '?'}): ${detail}`);
+  }
+  return err;
+}
+
+async function create(anthropic, params) {
+  try {
+    return await anthropic.beta.messages.create({
+      ...params,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    });
+  } catch (err) {
+    // חשבונות שעוד לא תומכים ב-fallback מקבלים 400 על הפרמטר - שולחים שוב בלעדיו
+    if (err instanceof Anthropic.BadRequestError && /fallback|beta/i.test(err?.error?.error?.message ?? '')) {
+      try {
+        return await anthropic.messages.create(params);
+      } catch (retryErr) {
+        throw friendlyError(retryErr);
+      }
+    }
+    throw friendlyError(err);
+  }
+}
+
+// בקשה קטנה שבודקת שהמפתח, הקרדיט והמודל תקינים
+export async function testConnection(settings) {
+  const response = await create(client(settings), {
+    model: MODEL,
+    max_tokens: 200,
+    messages: [{ role: 'user', content: 'ענה במילה אחת: תקין' }],
+    output_config: { effort: 'low' },
+  });
+  return response.model;
+}
+
 async function run(settings, { system, messages, tools, effort = 'medium' }) {
   const anthropic = client(settings);
   const convo = [...messages];
   for (let i = 0; i < 4; i++) {
-    const response = await anthropic.beta.messages.create({
+    const response = await create(anthropic, {
       model: MODEL,
       max_tokens: 16000,
       system,
       messages: convo,
       ...(tools ? { tools } : {}),
       output_config: { effort },
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
     });
     if (response.stop_reason === 'refusal') {
       throw new Error('ה-AI סירב לבקשה הזו. נסו לנסח אחרת.');

@@ -218,3 +218,7 @@ details summary { cursor: pointer; font-weight: 600; margin: 12px 0 6px; }
   position: fixed; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 14px); inset-inline: 16px; z-index: 50;
   background: var(--text); color: var(--bg); padding: 12px 14px; border-radius: 12px; text-align: center;
 }
+
+.test-result { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; line-height: 1.5; background: var(--surface-2); overflow-wrap: anywhere; }
+.test-result.ok { color: var(--ok); }
+.test-result.bad { color: var(--bad); }
