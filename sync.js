@@ -1,6 +1,6 @@
 // מרתף משותף: סנכרון היינות דרך Firestore בין כמה טלפונים שיודעים את אותו קוד מרתף.
 // המקור לתצוגה נשאר ה-IndexedDB המקומי; כאן רק מעבירים שינויים לענן וממנו.
-import { firebaseConfig } from './firebase-config.js?v=14';
+import { firebaseConfig } from './firebase-config.js?v=15';
 
 const CODE_KEY = 'cellar.sharedCode';
 const LAST_SYNC_KEY = 'cellar.lastSyncAt';
