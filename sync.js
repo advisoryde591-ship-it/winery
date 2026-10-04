@@ -1,6 +1,6 @@
 // מרתף משותף: סנכרון היינות דרך Firestore בין כמה טלפונים שיודעים את אותו קוד מרתף.
 // המקור לתצוגה נשאר ה-IndexedDB המקומי; כאן רק מעבירים שינויים לענן וממנו.
-import { firebaseConfig } from './firebase-config.js?v=15';
+import { firebaseConfig } from './firebase-config.js?v=16';
 
 const CODE_KEY = 'cellar.sharedCode';
 const LAST_SYNC_KEY = 'cellar.lastSyncAt';
@@ -57,7 +57,10 @@ async function firestore() {
   if (db) return db;
   fb = await import('./vendor/firebase.js');
   const app = fb.initializeApp(firebaseConfig);
-  db = fb.initializeFirestore(app, { localCache: fb.memoryLocalCache() });
+  db = fb.initializeFirestore(app, {
+    localCache: fb.memoryLocalCache(),
+    ...(firebaseConfig.forceLongPolling ? { experimentalForceLongPolling: true } : {}),
+  });
   if (firebaseConfig.emulatorHost) {
     const [host, port] = firebaseConfig.emulatorHost.split(':');
     fb.connectFirestoreEmulator(db, host, Number(port));
@@ -190,7 +193,14 @@ export async function create(localWines) {
 // הצטרפות למרתף קיים: היינות שכבר בטלפון מתווספים אליו
 export async function join(code) {
   await firestore();
-  const remote = await fb.getDocs(winesRef(code));
+  // תמיד מול השרת: בלי חיבור לא "מצטרפים" למרתף שנראה ריק
+  let remote;
+  try {
+    remote = await fb.getDocsFromServer(winesRef(code));
+  } catch (err) {
+    if (err.code === 'permission-denied') throw err;
+    throw new Error('אין חיבור לשרת. בדקו את האינטרנט ונסו שוב.');
+  }
   setCode(code);
   setLastSync(0);
   return remote.size;

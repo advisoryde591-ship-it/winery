@@ -1,10 +1,10 @@
 import {
   getAllWines, putWine as dbPut, deleteWine as dbDelete, loadSettings, saveSettings, listBackups, saveBackup, restoreBackup,
-} from './db.js?v=15';
-import * as sync from './sync.js?v=15';
+} from './db.js?v=16';
+import * as sync from './sync.js?v=16';
 import {
   GROUPS, groupOf, flag, findDuplicate, mergeInto, mergeDuplicates, rankCompare, matchesSearch, appellationOf,
-} from './cellar.js?v=15';
+} from './cellar.js?v=16';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -513,7 +513,7 @@ $('#btn-analyze').addEventListener('click', async () => {
   status.innerHTML = '<div class="spinner"></div>מזהה את היין… בדרך כלל 10–20 שניות.';
   $('#btn-analyze').disabled = true;
   try {
-    const { identifyWine } = await import('./ai.js?v=15');
+    const { identifyWine } = await import('./ai.js?v=16');
     const images = [photos.front, photos.back].filter(Boolean).map((p) => p.ai);
     const info = await identifyWine(images, settings);
     const { bottle_box: box, ...details } = info;
@@ -534,7 +534,7 @@ const pricing = new Set();
 async function updatePriceInBackground(wine) {
   pricing.add(wine.id);
   try {
-    const { refreshPrice } = await import('./ai.js?v=15');
+    const { refreshPrice } = await import('./ai.js?v=16');
     Object.assign(wine, await refreshPrice(wine, settings), { currency: settings.currency });
     if (wines.includes(wine)) {
       await putWine(wine);
@@ -765,7 +765,7 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     out.textContent = 'מחפש ברשת…';
     e.target.disabled = true;
     try {
-      const { findPrices } = await import('./ai.js?v=15');
+      const { findPrices } = await import('./ai.js?v=16');
       out.innerHTML = linkify(await findPrices(wine, settings));
     } catch (err) {
       out.textContent = `⚠️ ${err.message}`;
@@ -803,7 +803,7 @@ async function ask(question) {
   chatHistory.push({ role: 'user', content: question });
   const pending = addMsg('ai loading', 'חושב… 🍷');
   try {
-    const { askSommelier } = await import('./ai.js?v=15');
+    const { askSommelier } = await import('./ai.js?v=16');
     const answer = await askSommelier(chatHistory, wines, settings);
     chatHistory.push({ role: 'assistant', content: answer });
     pending.classList.remove('loading');
@@ -944,7 +944,7 @@ $('#btn-test').addEventListener('click', async (e) => {
   out.textContent = 'בודק…';
   e.target.disabled = true;
   try {
-    const { testConnection } = await import('./ai.js?v=15');
+    const { testConnection } = await import('./ai.js?v=16');
     await testConnection({ ...settings, apiKey: key });
     settings.apiKey = key;
     saveSettings(settings);
@@ -1167,7 +1167,7 @@ async function mergeExistingDuplicates() {
 // השלמת דגל, אזור וציון ליינות ישנים, ברקע ואחד אחד
 async function enrichOldWines() {
   if (!settings.apiKey) return;
-  const { enrichWine } = await import('./ai.js?v=15');
+  const { enrichWine } = await import('./ai.js?v=16');
   for (const wine of wines.filter((w) => !w.enrichedAt)) {
     try {
       const { country_he, region_he, ...extra } = await enrichWine(wine, settings);

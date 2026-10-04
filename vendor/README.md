@@ -18,7 +18,7 @@ npx esbuild entry.js --bundle --format=esm --minify --platform=browser --outfile
 npm i firebase@12.19.0 esbuild
 cat > entry.js <<'X'
 export { initializeApp } from 'firebase/app';
-export { initializeFirestore, connectFirestoreEmulator, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs, writeBatch, persistentLocalCache, memoryLocalCache } from 'firebase/firestore';
+export { initializeFirestore, connectFirestoreEmulator, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs, getDocsFromServer, writeBatch, persistentLocalCache, memoryLocalCache } from 'firebase/firestore';
 X
 npx esbuild entry.js --bundle --format=esm --minify --platform=browser --outfile=firebase.js
 ```
