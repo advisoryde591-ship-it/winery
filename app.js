@@ -1,10 +1,10 @@
 import {
   getAllWines, putWine as dbPut, deleteWine as dbDelete, loadSettings, saveSettings, listBackups, saveBackup, restoreBackup,
-} from './db.js?v=18';
-import * as sync from './sync.js?v=18';
+} from './db.js?v=19';
+import * as sync from './sync.js?v=19';
 import {
   GROUPS, groupOf, flag, findDuplicate, mergeInto, mergeDuplicates, rankCompare, matchesSearch, appellationOf,
-} from './cellar.js?v=18';
+} from './cellar.js?v=19';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -281,7 +281,10 @@ function showView(name) {
   $$('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
   $('#screen-title').textContent = VIEW_TITLES[name];
   window.scrollTo(0, 0);
-  if (name === 'shopping') renderShopping();
+  if (name === 'shopping') {
+    renderShopping();
+    renderMyShops();
+  }
   if (name === 'settings') {
     renderShared();
     $('#rates-info').textContent = ratesText();
@@ -513,7 +516,7 @@ $('#btn-analyze').addEventListener('click', async () => {
   status.innerHTML = '<div class="spinner"></div>מזהה את היין… בדרך כלל 10–20 שניות.';
   $('#btn-analyze').disabled = true;
   try {
-    const { identifyWine } = await import('./ai.js?v=18');
+    const { identifyWine } = await import('./ai.js?v=19');
     const images = [photos.front, photos.back].filter(Boolean).map((p) => p.ai);
     const info = await identifyWine(images, settings);
     const { bottle_box: box, ...details } = info;
@@ -534,7 +537,7 @@ const pricing = new Set();
 async function updatePriceInBackground(wine) {
   pricing.add(wine.id);
   try {
-    const { refreshPrice } = await import('./ai.js?v=18');
+    const { refreshPrice } = await import('./ai.js?v=19');
     Object.assign(wine, await refreshPrice(wine, settings), { currency: settings.currency });
     if (wines.includes(wine)) {
       await putWine(wine);
@@ -765,7 +768,7 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     out.textContent = 'מחפש ברשת…';
     e.target.disabled = true;
     try {
-      const { findPrices } = await import('./ai.js?v=18');
+      const { findPrices } = await import('./ai.js?v=19');
       out.innerHTML = linkify(await findPrices(wine, settings));
     } catch (err) {
       out.textContent = `⚠️ ${err.message}`;
@@ -803,7 +806,7 @@ async function ask(question) {
   chatHistory.push({ role: 'user', content: question });
   const pending = addMsg('ai loading', 'חושב… 🍷');
   try {
-    const { askSommelier } = await import('./ai.js?v=18');
+    const { askSommelier } = await import('./ai.js?v=19');
     const answer = await askSommelier(chatHistory, wines, settings);
     chatHistory.push({ role: 'assistant', content: answer });
     pending.classList.remove('loading');
@@ -870,65 +873,120 @@ $('#shopping-list').addEventListener('click', async (e) => {
   renderShopping();
 });
 
-// ---------- חיפוש חנויות יין באזור ----------
+// ---------- החנויות שלי ----------
+// רשימת החנויות שהמשתמש מזמין מהן. בכל הזמנה בוחרים לאיזו חנות לשלוח.
 
-let foundShops = [];
+function getShops() {
+  if (!Array.isArray(settings.shops)) {
+    // מעבר מהגרסה הקודמת: חנות אחת בהגדרות
+    settings.shops = settings.storeName || settings.storePhone || settings.storeEmail
+      ? [{ id: 'shop1', name: settings.storeName || 'החנות שלי', whatsapp: settings.storePhone || '', email: settings.storeEmail || '', website: '' }]
+      : [];
+    settings.selectedShop = settings.shops[0]?.id ?? null;
+    saveSettings(settings);
+  }
+  return settings.shops;
+}
 
-function renderShops() {
-  const current = settings.storeName;
-  $('#shops-list').innerHTML = foundShops.map((shop, i) => `
-    <div class="shop">
-      <b>${esc(shop.name)}</b>${shop.city ? ` <span class="meta">· ${esc(shop.city)}</span>` : ''}
-      ${shop.note ? `<p class="meta">${esc(shop.note)}</p>` : ''}
+function selectedShop() {
+  const shops = getShops();
+  return shops.find((x) => x.id === settings.selectedShop) ?? shops[0] ?? null;
+}
+
+let editingShop = null; // מזהה החנות שבעריכה, או 'new'
+
+function shopForm(shop = {}) {
+  return `
+    <div class="shop shop-form">
+      <label>שם החנות<input id="shop-name" type="text" value="${esc(shop.name)}" placeholder="למשל: Oinou Yinesthai"></label>
+      <label>וואטסאפ (עם קידומת מדינה)<input id="shop-whatsapp" type="tel" inputmode="tel" dir="ltr" value="${esc(shop.whatsapp)}" placeholder="+357 99 123456"></label>
+      <label>מייל (רשות)<input id="shop-email" type="email" dir="ltr" value="${esc(shop.email)}" placeholder="orders@shop.com"></label>
+      <label>אתר (רשות, לבדיקת מחירים)<input id="shop-website" type="url" dir="ltr" value="${esc(shop.website)}" placeholder="https://"></label>
+      <div class="shop-actions">
+        <button type="button" class="btn small primary" data-shop-act="save">שמירה</button>
+        <button type="button" class="btn small" data-shop-act="cancel">ביטול</button>
+      </div>
+    </div>`;
+}
+
+function renderMyShops() {
+  const shops = getShops();
+  const current = selectedShop();
+  const rows = shops.map((shop) => (editingShop === shop.id ? shopForm(shop) : `
+    <div class="shop ${current?.id === shop.id ? 'selected' : ''}" data-id="${esc(shop.id)}">
+      <label class="shop-pick">
+        <input type="radio" name="order-shop" value="${esc(shop.id)}" ${current?.id === shop.id ? 'checked' : ''}>
+        <b>${esc(shop.name)}</b>
+      </label>
       <div class="shop-links">
         ${shop.whatsapp ? `<span dir="ltr">💬 ${esc(shop.whatsapp)}</span>` : ''}
-        ${shop.phone ? `<a href="tel:${esc(shop.phone.replace(/[^+\d]/g, ''))}" dir="ltr">📞 ${esc(shop.phone)}</a>` : ''}
         ${shop.email ? `<span dir="ltr">✉️ ${esc(shop.email)}</span>` : ''}
         ${shop.website ? `<a href="${esc(shop.website)}" target="_blank" rel="noopener">🌐 אתר</a>` : ''}
       </div>
-      <button type="button" class="btn small ${current === shop.name ? 'primary' : ''}" data-shop="${i}">
-        ${current === shop.name ? '✓ החנות שלי' : 'בחירה כחנות להזמנות'}
-      </button>
-    </div>`).join('');
+      <div class="shop-actions">
+        <button type="button" class="btn small ghost" data-shop-act="edit">✏️ עריכה</button>
+        <button type="button" class="btn small ghost danger" data-shop-act="delete">🗑️ מחיקה</button>
+      </div>
+    </div>`)).join('');
+  $('#my-shops').innerHTML = rows
+    + (editingShop === 'new' ? shopForm() : '<button type="button" class="btn" data-shop-act="add">➕ הוספת חנות</button>');
+  const orderTo = $('#order-to');
+  orderTo.textContent = current ? `ההזמנה תישלח ל: ${current.name}` : 'הוסיפו חנות כדי לשלוח אליה הזמנה.';
 }
 
-$('#btn-find-shops').addEventListener('click', async (e) => {
-  const status = $('#shops-status');
-  status.hidden = false;
-  status.textContent = 'מחפש חנויות יין ברשת… זה לוקח כחצי דקה.';
-  e.target.disabled = true;
-  try {
-    const { findShops } = await import('./ai.js?v=18');
-    foundShops = await findShops(settings);
-    status.textContent = foundShops.length
-      ? 'בדקו את הפרטים מול האתר של החנות לפני שמזמינים.'
-      : 'לא נמצאו חנויות. בדקו את המדינה והעיר בהגדרות ונסו שוב.';
-    renderShops();
-  } catch (err) {
-    status.textContent = `⚠️ ${err.message}`;
-  } finally {
-    e.target.disabled = false;
-  }
+$('#my-shops').addEventListener('change', (e) => {
+  if (e.target.name !== 'order-shop') return;
+  settings.selectedShop = e.target.value;
+  saveSettings(settings);
+  renderMyShops();
 });
 
-$('#shops-list').addEventListener('click', (e) => {
-  const i = e.target.closest('[data-shop]')?.dataset.shop;
-  if (i == null) return;
-  const shop = foundShops[Number(i)];
-  settings.storeName = shop.name;
-  settings.storePhone = (shop.whatsapp || shop.phone || '').replace(/\D/g, '');
-  settings.storeEmail = shop.email || '';
-  saveSettings(settings);
-  fillSettings();
-  renderShops();
-  toast(`✓ ${shop.name} נבחרה. ההזמנות יישלחו אליה`);
+$('#my-shops').addEventListener('click', (e) => {
+  const act = e.target.closest('[data-shop-act]')?.dataset.shopAct;
+  if (!act) return;
+  const id = e.target.closest('[data-id]')?.dataset.id;
+  const shops = getShops();
+  if (act === 'add') editingShop = 'new';
+  else if (act === 'edit') editingShop = id;
+  else if (act === 'cancel') editingShop = null;
+  else if (act === 'delete') {
+    const shop = shops.find((x) => x.id === id);
+    if (!confirm(`למחוק את ${shop.name} מהחנויות שלי?`)) return;
+    settings.shops = shops.filter((x) => x.id !== id);
+    saveSettings(settings);
+  } else if (act === 'save') {
+    const data = {
+      name: $('#shop-name').value.trim(),
+      whatsapp: $('#shop-whatsapp').value.trim(),
+      email: $('#shop-email').value.trim(),
+      website: $('#shop-website').value.trim(),
+    };
+    if (!data.name) {
+      toast('כתבו את שם החנות');
+      return;
+    }
+    if (data.website && !/^https?:\/\//.test(data.website)) data.website = `https://${data.website}`;
+    if (editingShop === 'new') {
+      const shop = { id: `shop${Date.now()}`, ...data };
+      shops.push(shop);
+      if (!settings.selectedShop) settings.selectedShop = shop.id;
+    } else {
+      Object.assign(shops.find((x) => x.id === editingShop), data);
+    }
+    settings.shops = shops;
+    saveSettings(settings);
+    editingShop = null;
+    toast(`✓ ${data.name} נשמרה`);
+  }
+  renderMyShops();
 });
 
 function orderText() {
+  const shop = selectedShop();
   const lines = shoppingItems().map((w) =>
     `• ${w.reorderQty ?? settings.reorderQty} × ${[w.producer, w.name].filter(Boolean).join(' ')}${w.vintage ? ` ${w.vintage}` : ''}`);
   return [
-    `שלום${settings.storeName ? ` ${settings.storeName}` : ''},`,
+    `שלום${shop ? ` ${shop.name}` : ''},`,
     'אשמח להזמין:',
     ...lines,
     '',
@@ -939,14 +997,14 @@ function orderText() {
 }
 
 $('#btn-order-wa').addEventListener('click', () => {
-  const phone = settings.storePhone.replace(/\D/g, '');
+  const phone = (selectedShop()?.whatsapp ?? '').replace(/\D/g, '');
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(orderText())}`;
-  if (!phone) toast('לא הוגדר מספר וואטסאפ לחנות - בחרו איש קשר בוואטסאפ');
+  if (!phone) toast('לחנות שנבחרה אין מספר וואטסאפ - בחרו איש קשר בוואטסאפ');
   window.open(url, '_blank');
 });
 $('#btn-order-mail').addEventListener('click', () => {
   const subject = encodeURIComponent('הזמנת יין');
-  window.location.href = `mailto:${settings.storeEmail}?subject=${subject}&body=${encodeURIComponent(orderText())}`;
+  window.location.href = `mailto:${selectedShop()?.email ?? ''}?subject=${subject}&body=${encodeURIComponent(orderText())}`;
 });
 $('#btn-order-copy').addEventListener('click', async () => {
   try {
@@ -960,9 +1018,8 @@ $('#btn-order-copy').addEventListener('click', async () => {
 // ---------- הגדרות וגיבוי ----------
 
 const SETTING_INPUTS = {
-  apiKey: '#set-apikey', currency: '#set-currency', storeName: '#set-store-name',
-  shopCountry: '#set-shop-country', shopCity: '#set-shop-city',
-  storePhone: '#set-store-phone', storeEmail: '#set-store-email', myName: '#set-my-name', reorderQty: '#set-reorder-qty',
+  apiKey: '#set-apikey', currency: '#set-currency',
+  shopCountry: '#set-shop-country', shopCity: '#set-shop-city', myName: '#set-my-name', reorderQty: '#set-reorder-qty',
 };
 
 function fillSettings() {
@@ -999,7 +1056,7 @@ $('#btn-test').addEventListener('click', async (e) => {
   out.textContent = 'בודק…';
   e.target.disabled = true;
   try {
-    const { testConnection } = await import('./ai.js?v=18');
+    const { testConnection } = await import('./ai.js?v=19');
     await testConnection({ ...settings, apiKey: key });
     settings.apiKey = key;
     saveSettings(settings);
@@ -1227,7 +1284,7 @@ async function mergeExistingDuplicates() {
 // השלמת דגל, אזור וציון ליינות ישנים, ברקע ואחד אחד
 async function enrichOldWines() {
   if (!settings.apiKey) return;
-  const { enrichWine } = await import('./ai.js?v=18');
+  const { enrichWine } = await import('./ai.js?v=19');
   for (const wine of wines.filter((w) => !w.enrichedAt)) {
     try {
       const { country_he, region_he, ...extra } = await enrichWine(wine, settings);

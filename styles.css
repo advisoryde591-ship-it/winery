@@ -278,3 +278,10 @@ details summary { cursor: pointer; font-weight: 600; margin: 12px 0 6px; }
 .shop-links { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .85rem; }
 .shop-links a { color: var(--accent); }
 .shop .btn.small { justify-self: start; }
+
+.shop.selected { border-color: var(--accent); }
+.shop-pick { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.shop-pick input { width: auto; margin: 0; accent-color: var(--accent); }
+.shop-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.shop-form label { display: block; font-size: .85rem; }
+.shop-form input { margin-top: 4px; }

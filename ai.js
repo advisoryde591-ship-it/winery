@@ -20,6 +20,13 @@ function shopPlace(settings) {
   return { code, he, en, city, label: city ? `${city}, ${en}` : en };
 }
 
+// החנויות שהמשתמש הגדיר: החיפוש בודק אותן קודם
+function myShopsText(settings) {
+  const shops = (settings.shops ?? []).filter((x) => x.name);
+  if (!shops.length) return '';
+  return shops.map((x) => `- ${x.name}${x.website ? ` (${x.website})` : ''}`).join('\n');
+}
+
 function webSearch(settings, maxUses = 4) {
   const place = shopPlace(settings);
   return {
@@ -222,14 +229,16 @@ export async function identifyWine(images, settings) {
   return extractJson(await ask());
 }
 
-const priceSystem = (place) => `You are a wine appraiser. Search the web for the current retail shelf price of one bottle of the requested wine. The collector buys in ${place.label}: prefer shops in ${place.en} (or that deliver there), then the rest of Europe.
+const priceSystem = (place, shops) => `You are a wine appraiser. Search the web for the current retail shelf price of one bottle of the requested wine. The collector buys in ${place.label}: prefer shops in ${place.en} (or that deliver there), then the rest of Europe.${shops ? `
+The collector's own shops - check these first (search their websites) and name them in price_note when you find the wine there:
+${shops}` : ''}
 Return only one \`\`\`json block: {"price_low": number, "price_high": number, "price_note": "<up to 10 words IN HEBREW naming the shops>"}
 price_note must be in Hebrew, never Russian or English.`;
 
 export async function refreshPrice(wine, settings) {
   const label = [wine.producer, wine.name, wine.vintage ?? 'NV'].filter(Boolean).join(' ');
   const text = await run(settings, {
-    system: priceSystem(shopPlace(settings)),
+    system: priceSystem(shopPlace(settings), myShopsText(settings)),
     messages: [{ role: 'user', content: `${label}. Prices in ${CURRENCY_CODES[settings.currency] || settings.currency}.` }],
     tools: [webSearch(settings, 3)],
     effort: 'low',
@@ -290,7 +299,9 @@ export async function askSommelier(history, wines, settings) {
 אתה הסומלייה האישי של בעל המרתף. ענה בעברית, בחום ובקצרה (עד 8 שורות אלא אם התבקש ניתוח).
 המלץ רק על בקבוקים שקיימים במלאי למטה, ציין את שמם המלא ובציר, והסבר במשפט למה. אם אין במלאי משהו מתאים, אמור זאת והצע מה לקנות.
 התחשב בחלון השתייה: עדיפות לבקבוקים בשיא או כאלה שעומדים לעבור אותו. היום ${today}.
-בעל המרתף קונה יין ב${place.city ? `${place.city}, ` : ''}${place.he}.
+בעל המרתף קונה יין ב${place.city ? `${place.city}, ` : ''}${place.he}.${myShopsText(settings) ? `
+החנויות שלו (כשמדברים על קנייה, התחל מהן ובדוק באתרים שלהן):
+${myShopsText(settings)}` : ''}
 יש לך כלי חיפוש ברשת. כשמבקשים חנויות, מחירים, זמינות או כל מידע עדכני - חפש ברשת ותן תשובה עם שמות, טלפונים וקישורים אמיתיים. אל תגיד שאין לך גישה לאינטרנט.
 אל תשתמש ב-Markdown כבד (בלי טבלאות). רשימות קצרות עם מקפים זה בסדר.
 
@@ -304,26 +315,12 @@ export async function findPrices(wine, settings) {
   const place = shopPlace(settings);
   const system = `Always answer in Hebrew only (never Russian or English).
 אתה עוזר קניות ליין. חפש ברשת היכן אפשר לקנות את היין המבוקש היום ב${place.city ? `${place.city}, ` : ''}${place.he} (חנויות מקומיות או שמשלוחות לשם).
-החזר בעברית רשימה קצרה: שם החנות, מחיר, קישור. בסוף - אם היין לא זמין, הצע 2 חלופות דומות במחיר דומה. בלי טבלאות.`;
+${myShopsText(settings) ? `בדוק קודם בחנויות שלו (חפש באתרים שלהן), ורק אחר כך באחרות:
+${myShopsText(settings)}
+` : ''}החזר בעברית רשימה קצרה: שם החנות, מחיר, קישור. בסוף - אם היין לא זמין, הצע 2 חלופות דומות במחיר דומה. בלי טבלאות.`;
   return run(settings, {
     system,
     messages: [{ role: 'user', content: `איפה לקנות: ${label}. מטבע מועדף: ${settings.currency}.` }],
     tools: [webSearch(settings)],
   });
-}
-
-const SHOPS_SYSTEM = `You help a wine collector find wine shops to order from. Search the web for real, currently operating wine shops / wine merchants in the given place (include online shops that deliver there). Prefer ones with a good selection of fine wine and champagne and a way to order by WhatsApp, phone or email.
-Return only one \`\`\`json block: {"shops": [{"name": "...", "city": "...", "phone": "+357...", "whatsapp": "+357... or null", "email": "... or null", "website": "https://...", "note": "<one short sentence IN HEBREW: what they are good for, delivery>"}]}
-Up to 8 shops. Only include contact details you actually found; use null otherwise. note must be in Hebrew.`;
-
-// חיפוש חנויות יין באזור של המשתמש, לבחירת החנות להזמנות
-export async function findShops(settings) {
-  const place = shopPlace(settings);
-  const text = await run(settings, {
-    system: SHOPS_SYSTEM,
-    messages: [{ role: 'user', content: `Wine shops in ${place.label}.` }],
-    tools: [webSearch(settings, 6)],
-  });
-  const { shops } = extractJson(text);
-  return Array.isArray(shops) ? shops : [];
 }

@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=18">
+  <link rel="stylesheet" href="styles.css?v=19">
 </head>
 <body>
   <header class="topbar">
@@ -121,14 +121,14 @@
       <div class="card">
         <p class="hint">כשבקבוק נגמר (הכמות יורדת ל-0) הוא נכנס לכאן אוטומטית. בוחרים כמה להזמין ושולחים הזמנה לחנות בוואטסאפ או במייל בלחיצה אחת.</p>
       </div>
-      <div class="card">
-        <button type="button" class="btn" id="btn-find-shops">🔎 מצא חנויות יין באזור שלי</button>
-        <p class="hint small" id="shops-status" hidden></p>
-        <div id="shops-list" class="shops-list"></div>
-      </div>
       <ul id="shopping-list" class="wine-list"></ul>
       <p id="empty-shopping" class="empty" hidden>אין כרגע מה להזמין 👌</p>
+      <div class="card">
+        <h2 class="section-head" style="margin-top:0">🏪 החנויות שלי</h2>
+        <div id="my-shops" class="shops-list"></div>
+      </div>
       <div id="order-actions" class="order-actions" hidden>
+        <p class="hint" id="order-to"></p>
         <button id="btn-order-wa" class="btn primary">📲 שליחת הזמנה בוואטסאפ</button>
         <button id="btn-order-mail" class="btn">✉️ שליחת הזמנה במייל</button>
         <button id="btn-order-copy" class="btn ghost">📋 העתקת ההזמנה</button>
@@ -170,15 +170,7 @@
         <label>עיר (רשות)
           <input id="set-shop-city" type="text" placeholder="למשל: Limassol">
         </label>
-        <label>שם החנות / הספק
-          <input id="set-store-name" type="text" placeholder="למשל: היין של מוטי">
-        </label>
-        <label>וואטסאפ של החנות (עם קידומת מדינה)
-          <input id="set-store-phone" type="tel" placeholder="9725XXXXXXXX" inputmode="tel">
-        </label>
-        <label>מייל של החנות
-          <input id="set-store-email" type="email" placeholder="orders@store.co.il">
-        </label>
+        <p class="hint small">את החנויות שמזמינים מהן מוסיפים במסך 🛒 קניות.</p>
         <label>שם המזמין
           <input id="set-my-name" type="text">
         </label>
@@ -237,6 +229,6 @@
       if (b) b.hidden = false;
     }, 5000);
   </script>
-  <script type="module" src="app.js?v=18"></script>
+  <script type="module" src="app.js?v=19"></script>
 </body>
 </html>
