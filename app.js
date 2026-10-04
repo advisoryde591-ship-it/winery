@@ -85,6 +85,35 @@ async function processImage(file) {
   }
 }
 
+// חיתוך התמונה סביב הבקבוק לפי המלבן שה-AI סימן (עם שוליים קטנים)
+async function cropToBottle(base64, box) {
+  const valid = box && [box.x, box.y, box.w, box.h].every((v) => typeof v === 'number' && v >= 0 && v <= 1)
+    && box.w > 0.05 && box.h > 0.1;
+  if (!valid) return null;
+  const img = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = `data:image/jpeg;base64,${base64}`;
+  });
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  const pad = 0.04;
+  const x0 = Math.max(0, (box.x - pad * box.w) * W);
+  const y0 = Math.max(0, (box.y - pad * box.h * 0.5) * H);
+  const x1 = Math.min(W, (box.x + box.w * (1 + pad)) * W);
+  const y1 = Math.min(H, (box.y + box.h * (1 + pad * 0.5)) * H);
+  const sw = x1 - x0;
+  const sh = y1 - y0;
+  if (sw < 20 || sh < 20) return null;
+  const scale = Math.min(1, 640 / Math.max(sw, sh));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(sw * scale);
+  canvas.height = Math.round(sh * scale);
+  canvas.getContext('2d').drawImage(img, x0, y0, sw, sh, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.85);
+}
+
 // ---------- ניווט ----------
 
 function showView(name) {
@@ -230,7 +259,9 @@ $('#btn-analyze').addEventListener('click', async () => {
     const { identifyWine } = await import('./ai.js');
     const images = [photos.front, photos.back].filter(Boolean).map((p) => p.ai);
     const info = await identifyWine(images, settings);
-    const wine = newWine({ ...info, photo: photos.front.thumb, ai: true });
+    const { bottle_box: box, ...details } = info;
+    const cropped = await cropToBottle(photos.front.ai, box).catch(() => null);
+    const wine = newWine({ ...details, photo: cropped ?? photos.front.thumb, ai: true });
     resetAddForm();
     if (settings.webSearch) updatePriceInBackground(wine);
     openWine(wine, { isNew: true });

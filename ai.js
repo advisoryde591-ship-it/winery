@@ -142,8 +142,11 @@ const IDENTIFY_SYSTEM = `אתה סומלייה מומחה ושמאי יין. מ�
   "serving_temp": "למשל 16-18°C",
   "decant": "המלצה על דקנטציה או null",
   "confidence": "high|medium|low",
-  "confidence_note": "מה היה קשה לזהות, אם בכלל"
-}`;
+  "confidence_note": "מה היה קשה לזהות, אם בכלל",
+  "bottle_box": {"x": 0.31, "y": 0.04, "w": 0.38, "h": 0.93}
+}
+bottle_box: המלבן ההדוק ביותר שמכיל את הבקבוק כולו (מהפקק עד התחתית) בתמונה הראשונה, כשברים מרוחב/גובה התמונה (0 עד 1), x,y = הפינה השמאלית-עליונה. אם אין בקבוק שלם בתמונה, null.
+`;
 
 export async function identifyWine(images, settings) {
   const year = new Date().getFullYear();
