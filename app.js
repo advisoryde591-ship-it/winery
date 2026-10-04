@@ -1,4 +1,7 @@
 import { getAllWines, putWine, deleteWine, clearWines, loadSettings, saveSettings } from './db.js';
+import {
+  GROUPS, groupOf, flag, findDuplicate, mergeInto, mergeDuplicates, rankCompare, matchesSearch, appellationOf,
+} from './cellar.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -205,7 +208,15 @@ function showView(name) {
   if (name === 'shopping') renderShopping();
 }
 
-$$('.tabbar button').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
+$$('.tabbar button').forEach((b) => b.addEventListener('click', () => {
+  // לחיצה על "מרתף" כשכבר נמצאים בו מחזירה למסך הקבוצות
+  if (b.dataset.view === 'cellar' && b.classList.contains('active')) {
+    Object.assign(cellarView, { group: null, region: null });
+    $('#search').value = '';
+    renderCellar();
+  }
+  showView(b.dataset.view);
+}));
 
 // ---------- מרתף ----------
 
@@ -220,17 +231,18 @@ function renderStats() {
     <div class="stat"><b>${ready}</b><span>לשתות עכשיו</span></div>`;
 }
 
-function wineRow(w) {
+function wineRow(w, rank = null) {
   const status = drinkStatus(w);
   const mid = midPrice(w);
   return `
     <li class="wine ${w.quantity > 0 ? '' : 'out'}" data-id="${esc(w.id)}">
       ${w.photo ? `<img src="${w.photo}" alt="">` : `<div class="ph">${TYPE_ICONS[w.type] ?? '🍷'}</div>`}
       <div>
-        <h3>${esc(wineTitle(w))}</h3>
-        <div class="meta">${esc([w.vintage ?? 'NV', w.region, w.country].filter(Boolean).join(' · '))}</div>
+        <h3>${rank ? `<span class="rank">#${rank}</span> ` : ''}${esc(wineTitle(w))}</h3>
+        <div class="meta">${flag(w) ? `<span class="flag">${flag(w)}</span> ` : ''}${esc([w.vintage ?? 'NV', appellationOf(w), w.country].filter(Boolean).join(' · '))}</div>
         <div class="tags">
-          ${w.type ? `<span class="tag">${TYPE_LABELS[w.type] ?? esc(w.type)}</span>` : ''}
+          ${w.rating ? `<span class="tag gold">${'★'.repeat(w.rating)}</span>` : ''}
+          ${w.score ? `<span class="tag">🏅 ${w.score}</span>` : ''}
           ${status ? `<span class="tag ${status.cls}">${status.label}</span>` : ''}
           ${mid ? `<span class="tag price">${money(mid, w.currency)}</span>` : ''}
         </div>
@@ -243,31 +255,112 @@ function wineRow(w) {
     </li>`;
 }
 
-function renderCellar() {
-  renderStats();
-  const q = $('#search').value.trim().toLowerCase();
-  const type = $('#filter-type').value;
-  const sort = $('#sort').value;
-  let list = wines.filter((w) => {
-    if (type && w.type !== type) return false;
-    if (!q) return true;
-    return [w.name, w.producer, w.region, w.country, ...(w.grapes ?? [])]
-      .join(' ').toLowerCase().includes(q);
-  });
-  const sorters = {
-    drink: (a, b) => (drinkStatus(a)?.rank ?? 9) - (drinkStatus(b)?.rank ?? 9),
-    value: (a, b) => (midPrice(b) ?? 0) - (midPrice(a) ?? 0),
-    recent: (a, b) => b.created - a.created,
-    name: (a, b) => wineTitle(a).localeCompare(wineTitle(b), 'he'),
-  };
-  // בקבוקים שנגמרו תמיד בסוף
-  list = list.sort((a, b) => (b.quantity > 0) - (a.quantity > 0) || sorters[sort](a, b));
-  $('#wine-list').innerHTML = list.map(wineRow).join('');
-  $('#empty-cellar').hidden = wines.length > 0;
-  updateShopBadge();
+// מה מוצג במרתף: מסך הבית (קבוצות), קבוצת סוג, אזור, או תוצאות חיפוש
+const cellarView = { group: null, region: null };
+
+function bottles(list) {
+  return list.reduce((sum, w) => sum + Math.max(0, w.quantity), 0);
 }
 
-['#search', '#filter-type', '#sort'].forEach((s) => $(s).addEventListener('input', renderCellar));
+function regionChips(list, active) {
+  const counts = new Map();
+  for (const w of list.filter((x) => x.quantity > 0)) {
+    const name = appellationOf(w);
+    if (!name) continue;
+    const entry = counts.get(name) ?? { n: 0, flag: flag(w) };
+    entry.n += w.quantity;
+    counts.set(name, entry);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0], 'he'))
+    .map(([name, { n, flag: f }]) => `<button type="button" class="chip ${name === active ? 'active' : ''}" data-region="${esc(name)}">${f} ${esc(name)} <small>${n}</small></button>`)
+    .join('');
+}
+
+const SORTERS = {
+  rank: rankCompare,
+  drink: (a, b) => (drinkStatus(a)?.rank ?? 9) - (drinkStatus(b)?.rank ?? 9),
+  value: (a, b) => (midPrice(b) ?? 0) - (midPrice(a) ?? 0),
+  recent: (a, b) => b.created - a.created,
+  name: (a, b) => wineTitle(a).localeCompare(wineTitle(b), 'he'),
+};
+
+function renderCellar() {
+  renderStats();
+  updateShopBadge();
+  $('#empty-cellar').hidden = wines.length > 0;
+  const q = $('#search').value.trim();
+  const home = !q && !cellarView.group && !cellarView.region;
+  $('#cellar-home').hidden = !home || wines.length === 0;
+  $('#cellar-list').hidden = home;
+
+  if (home) {
+    $('#group-tiles').innerHTML = GROUPS.map((g) => {
+      const list = wines.filter((w) => groupOf(w) === g.id);
+      const n = bottles(list);
+      if (g.id === 'other' && !list.length) return '';
+      const value = list.reduce((sum, w) => sum + (midPrice(w) ?? 0) * Math.max(0, w.quantity), 0);
+      return `<button type="button" class="group-tile ${n ? '' : 'empty-group'}" data-group="${g.id}">
+        <span class="icon">${g.icon}</span><b>${g.label}</b>
+        <span>${n} בקבוקים${value ? ` · ${money(value)}` : ''}</span>
+      </button>`;
+    }).join('');
+    const chips = regionChips(wines);
+    $('#region-chips').innerHTML = chips;
+    $('#regions-head').hidden = !chips;
+    return;
+  }
+
+  const group = GROUPS.find((g) => g.id === cellarView.group);
+  let list = wines.filter((w) => (!group || groupOf(w) === group.id)
+    && (!cellarView.region || appellationOf(w) === cellarView.region)
+    && matchesSearch(w, q));
+  $('#list-title').textContent = group
+    ? `${group.icon} ${group.label}${cellarView.region ? ` · ${cellarView.region}` : ''}`
+    : cellarView.region ? `📍 ${cellarView.region}` : `🔎 ${list.length} תוצאות`;
+  $('#list-chips').innerHTML = group ? regionChips(wines.filter((w) => groupOf(w) === group.id), cellarView.region) : '';
+
+  const sort = $('#sort').value;
+  // בקבוקים שנגמרו תמיד בסוף
+  list = list.sort((a, b) => (b.quantity > 0) - (a.quantity > 0) || SORTERS[sort](a, b));
+  let rank = 0;
+  $('#wine-list').innerHTML = list
+    .map((w) => wineRow(w, sort === 'rank' && w.quantity > 0 ? ++rank : null))
+    .join('');
+  $('#empty-list').hidden = list.length > 0;
+}
+
+$('#search').addEventListener('input', renderCellar);
+$('#sort').addEventListener('input', renderCellar);
+
+$('#group-tiles').addEventListener('click', (e) => {
+  const tile = e.target.closest('[data-group]');
+  if (!tile) return;
+  Object.assign(cellarView, { group: tile.dataset.group, region: null });
+  $('#sort').value = 'rank';
+  renderCellar();
+  window.scrollTo(0, 0);
+});
+
+function onRegionChip(e) {
+  const chip = e.target.closest('[data-region]');
+  if (!chip) return;
+  const region = chip.dataset.region;
+  cellarView.region = cellarView.region === region && cellarView.group ? null : region;
+  renderCellar();
+}
+$('#region-chips').addEventListener('click', (e) => {
+  cellarView.group = null;
+  $('#sort').value = 'rank';
+  onRegionChip(e);
+});
+$('#list-chips').addEventListener('click', onRegionChip);
+
+$('#btn-back').addEventListener('click', () => {
+  Object.assign(cellarView, { group: null, region: null });
+  $('#search').value = '';
+  renderCellar();
+});
 
 $('#wine-list').addEventListener('click', async (e) => {
   const li = e.target.closest('.wine');
@@ -342,7 +435,7 @@ $('#btn-analyze').addEventListener('click', async () => {
     const info = await identifyWine(images, settings);
     const { bottle_box: box, ...details } = info;
     const cropped = await cropToBottle(photos.front.ai, box).catch(() => null);
-    const wine = newWine({ ...details, photo: cropped ?? photos.front.thumb, photoFull: photos.front.full, bottleBox: box ?? null, ai: true });
+    const wine = newWine({ ...details, photo: cropped ?? photos.front.thumb, photoFull: photos.front.full, bottleBox: box ?? null, ai: true, enrichedAt: Date.now() });
     resetAddForm();
     if (settings.webSearch) updatePriceInBackground(wine);
     openWine(wine, { isNew: true });
@@ -411,7 +504,8 @@ function newWine(data) {
 
 const FIELDS = [
   ['producer', 'יצרן'], ['name', 'שם היין'], ['vintage', 'בציר', 'number'],
-  ['country', 'מדינה'], ['region', 'אזור'], ['grapes', 'זנים (מופרדים בפסיק)', 'list'],
+  ['country', 'מדינה'], ['region', 'אזור'], ['appellation', 'אפלסיון (לקבוצות וחיפוש)'],
+  ['score', 'ציון מבקרים (80-100)', 'number'], ['grapes', 'זנים (מופרדים בפסיק)', 'list'],
   ['price_low', 'מחיר מינימום', 'number'], ['price_high', 'מחיר מקסימום', 'number'],
   ['drink_from', 'לשתות משנת', 'number'], ['drink_until', 'לשתות עד שנת', 'number'],
   ['peak', 'שנת שיא', 'number'], ['serving_temp', 'טמפרטורת הגשה'],
@@ -427,6 +521,7 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
   const dlg = $('#wine-dialog');
   const form = $('#wine-form');
   const status = drinkStatus(wine);
+  const dup = isNew ? findDuplicate(wine, wines) : null;
   const typeOptions = Object.entries(TYPE_LABELS)
     .map(([v, l]) => `<option value="${v}" ${wine.type === v ? 'selected' : ''}>${l}</option>`).join('');
   const fieldInputs = FIELDS.map(([key, label, kind]) => {
@@ -441,6 +536,7 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
       <button value="save">שמירה</button>
     </div>
     <div class="dlg-body">
+      ${dup ? `<div class="dup-note">🔁 היין הזה כבר במרתף (${dup.quantity} בקבוקים). בשמירה הוא יתווסף לאותה שורה ולא ייפתח כיין נפרד.</div>` : ''}
       <div class="hero">
         ${wine.photo ? `<div class="hero-photo">
           <img src="${wine.photo}" alt="" id="hero-img">
@@ -449,7 +545,8 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
         </div>` : `<div class="ph" style="font-size:3rem;display:grid;place-items:center">${TYPE_ICONS[wine.type] ?? '🍷'}</div>`}
         <div>
           <h2>${esc(wineTitle(wine))}</h2>
-          <div class="meta">${esc([wine.vintage ?? 'NV', wine.region, wine.country].filter(Boolean).join(' · '))}</div>
+          <div class="meta">${flag(wine) ? `<span class="flag">${flag(wine)}</span> ` : ''}${esc([wine.vintage ?? 'NV', wine.region, wine.country].filter(Boolean).join(' · '))}</div>
+          ${wine.score ? `<div class="meta">🏅 ציון מבקרים: ${wine.score}</div>` : ''}
           ${wine.grapes?.length ? `<div class="meta">${esc(wine.grapes.join(', '))}</div>` : ''}
           <div id="price-block">${priceBlock(wine)}</div>
           ${status ? `<div class="tags"><span class="tag ${status.cls}">${status.label}</span></div>` : ''}
@@ -511,13 +608,26 @@ function openWine(wine, { isNew = false, edit = false } = {}) {
     wine.rating = fd.get('rating') ? Number(fd.get('rating')) : null;
     wine.quantity = Math.max(0, Math.round(wine.quantity ?? 0));
     if (wine.quantity > 0) wine.reorder = false;
-    await putWine(wine);
-    if (!wines.includes(wine)) wines.push(wine);
+    // יין שכבר קיים: מוסיפים לשורה הקיימת במקום ליצור כפול
+    const existing = isNew ? findDuplicate(wine, wines) : null;
+    if (existing) {
+      mergeInto(existing, { ...wine, id: existing.id });
+      await putWine(existing);
+    } else {
+      await putWine(wine);
+      if (!wines.includes(wine)) wines.push(wine);
+    }
     dlg.close();
+    if (isNew) {
+      // מציגים את הקבוצה של היין שנוסף
+      Object.assign(cellarView, { group: groupOf(existing ?? wine), region: null });
+      $('#search').value = '';
+      $('#sort').value = 'rank';
+    }
     renderCellar();
     if (isNew) {
       showView('cellar');
-      toast('נוסף למרתף 🍷');
+      toast(existing ? `🔁 היין כבר היה במרתף. עכשיו יש ${existing.quantity} בקבוקים` : 'נוסף למרתף 🍷');
     }
   };
 
@@ -793,10 +903,45 @@ $('#import-file').addEventListener('change', async (e) => {
 
 // ---------- הפעלה ----------
 
+// איחוד יינות כפולים שכבר שמורים (נוספו פעמיים כשורות נפרדות)
+async function mergeExistingDuplicates() {
+  const { kept, removed, changed } = mergeDuplicates(wines);
+  if (!removed.length) return;
+  for (const w of changed) await putWine(w);
+  for (const w of removed) await deleteWine(w.id);
+  wines = kept;
+  toast(`🔁 איחדתי ${removed.length} ${removed.length === 1 ? 'יין כפול' : 'יינות כפולים'}`, 4000);
+}
+
+// השלמת דגל, אזור וציון ליינות ישנים, ברקע ואחד אחד
+async function enrichOldWines() {
+  if (!settings.apiKey) return;
+  const { enrichWine } = await import('./ai.js');
+  for (const wine of wines.filter((w) => !w.enrichedAt)) {
+    try {
+      const { country_he, region_he, ...extra } = await enrichWine(wine, settings);
+      for (const [k, v] of Object.entries(extra)) {
+        if (v != null && (wine[k] == null || wine[k] === '')) wine[k] = v;
+      }
+      // מדינה ואזור שנשמרו בשפה אחרת (למשל רוסית) מוחלפים בעברית
+      const notHebrew = (t) => !t || !/[\u0590-\u05FF]/.test(t);
+      if (country_he && notHebrew(wine.country)) wine.country = country_he;
+      if (region_he && notHebrew(wine.region)) wine.region = region_he;
+      wine.enrichedAt = Date.now();
+      await putWine(wine);
+      renderCellar();
+    } catch {
+      return; // ננסה שוב בפתיחה הבאה
+    }
+  }
+}
+
 async function init() {
   fillSettings();
   wines = await getAllWines();
+  await mergeExistingDuplicates();
   renderCellar();
+  enrichOldWines();
   if (!settings.apiKey) {
     toast('כדי לזהות יינות מתמונה, הוסיפו מפתח Claude API בהגדרות ⚙️', 4500);
   }

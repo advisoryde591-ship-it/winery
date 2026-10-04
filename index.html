@@ -24,26 +24,32 @@
     <!-- מרתף -->
     <section id="view-cellar" class="view active">
       <div class="stats" id="stats"></div>
-      <div class="toolbar">
-        <input id="search" type="search" placeholder="חיפוש יין, יצרן, אזור…" autocomplete="off">
-        <select id="filter-type" aria-label="סוג">
-          <option value="">כל הסוגים</option>
-          <option value="red">אדום</option>
-          <option value="white">לבן</option>
-          <option value="rose">רוזה</option>
-          <option value="sparkling">מבעבע</option>
-          <option value="champagne">שמפניה</option>
-          <option value="dessert">קינוח</option>
-          <option value="fortified">מחוזק</option>
-        </select>
+      <input id="search" type="search" placeholder="חיפוש: יין, יצרן, אזור (שאבלי, ריוחה…)" autocomplete="off">
+
+      <!-- מסך הבית: קבוצות לפי סוג ולפי אזור -->
+      <div id="cellar-home">
+        <div id="group-tiles" class="group-tiles"></div>
+        <h2 class="section-head" id="regions-head">לפי אזור</h2>
+        <div id="region-chips" class="chips"></div>
+      </div>
+
+      <!-- רשימה: בתוך קבוצה, אזור או תוצאות חיפוש -->
+      <div id="cellar-list" hidden>
+        <div class="list-head">
+          <button type="button" class="back" id="btn-back">→ כל המרתף</button>
+          <h2 id="list-title"></h2>
+        </div>
+        <div id="list-chips" class="chips"></div>
         <select id="sort" aria-label="מיון">
+          <option value="rank">🏆 לפי דירוג</option>
           <option value="drink">לפי מתי לשתות</option>
           <option value="value">לפי שווי</option>
           <option value="recent">נוספו לאחרונה</option>
           <option value="name">לפי שם</option>
         </select>
+        <ul id="wine-list" class="wine-list"></ul>
+        <p id="empty-list" class="empty" hidden>אין כאן יינות.</p>
       </div>
-      <ul id="wine-list" class="wine-list"></ul>
       <p id="empty-cellar" class="empty" hidden>המרתף ריק. לחצו על "הוספה" וצלמו את הבקבוק הראשון 🍷</p>
     </section>
 

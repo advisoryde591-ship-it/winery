@@ -94,8 +94,6 @@ textarea { min-height: 70px; resize: vertical; }
 .stat b { display: block; font-size: 1.25rem; color: var(--accent); }
 .stat span { font-size: .78rem; color: var(--muted); }
 
-.toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-.toolbar #search { grid-column: 1 / -1; }
 
 /* רשימת יינות */
 .wine-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
@@ -226,3 +224,30 @@ details summary { cursor: pointer; font-weight: 600; margin: 12px 0 6px; }
 .hero-photo { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .hero-photo .btn.small { width: 110px; padding: 6px 4px; font-size: .8rem; }
 .hero-photo .confidence { width: 110px; text-align: center; }
+
+/* מסך הבית של המרתף */
+#search { margin-bottom: 12px; }
+.group-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.group-tile {
+  display: grid; gap: 2px; text-align: start; padding: 14px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font: inherit;
+}
+.group-tile .icon { font-size: 1.7rem; }
+.group-tile b { font-size: 1.05rem; }
+.group-tile span { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.group-tile.empty-group { opacity: .5; }
+.section-head { font-size: .95rem; color: var(--accent); margin: 18px 0 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chip {
+  font: inherit; font-size: .85rem; padding: 6px 12px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+.chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.chip small { color: inherit; opacity: .7; }
+.list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.list-head h2 { margin: 0; font-size: 1.1rem; }
+.back { background: none; border: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; padding: 6px 0; }
+#sort { margin-bottom: 10px; }
+.rank { font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; margin-inline-end: 4px; }
+.flag { font-size: 1.05em; }
+.dup-note { background: color-mix(in srgb, var(--gold) 16%, transparent); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; line-height: 1.5; }

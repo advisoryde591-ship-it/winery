@@ -121,6 +121,10 @@ LANGUAGE: every free-text value (country, region, grapes, price_note, tasting_no
 - Estimate the current retail price of one bottle (low-high) from your knowledge.
 - Drinking window: first and last ideal year, and peak year.
 - Keep it short: tasting_notes 2-3 sentences, price_note up to 10 words, lists up to 5 items.
+- country_code: ISO 3166-1 alpha-2 code of the wine's country (e.g. "FR").
+- appellation: the short appellation / sub-region name in Hebrew as people search for it (e.g. "שאבלי", "ריוחה", "גליל עליון", "שמפאן"); appellation_en: the same in its original Latin spelling (e.g. "Chablis").
+- search_tags: up to 8 terms in BOTH Hebrew and original spelling that someone might search for this wine by (appellation, region, sub-region, classification such as Premier Cru / Grand Cru, main grape, style).
+- score: typical critic score for this wine and vintage on the 100-point scale (integer 80-100), from your knowledge of critic consensus; null if you have no basis.
 - bottle_box: the tightest rectangle containing the whole bottle (capsule to base) in the FIRST image, as fractions (0-1) of image width/height, x,y = top-left corner. null if no whole bottle is visible. Always include it.
 
 Return only one \`\`\`json block:
@@ -150,6 +154,11 @@ Return only one \`\`\`json block:
   "decant": "..." or null,
   "confidence": "high|medium|low",
   "confidence_note": "...",
+  "country_code": "FR",
+  "appellation": "שאבלי",
+  "appellation_en": "Chablis",
+  "search_tags": ["שאבלי", "Chablis", "בורגונדי", "Burgundy", "פרמייה קרו", "Premier Cru"],
+  "score": 91,
   "bottle_box": {"x": 0.31, "y": 0.04, "w": 0.38, "h": 0.93}
 }`;
 
@@ -211,6 +220,26 @@ export async function refreshPrice(wine, settings) {
   return { price_low, price_high, price_note: note };
 }
 
+const ENRICH_SYSTEM = `You are a wine expert. For the wine described, return only one \`\`\`json block:
+{"country_code": "FR", "country_he": "<country in Hebrew>", "region_he": "<region in Hebrew>", "appellation": "<short appellation in Hebrew, e.g. שאבלי>", "appellation_en": "<same, original spelling>", "search_tags": ["<up to 8 terms in Hebrew AND original spelling: appellation, region, classification, main grape, style>"], "score": <typical critic score 80-100 for this wine and vintage, or null>}
+Hebrew values must be in Hebrew, never Russian.`;
+
+// השלמת שדות חדשים (דגל, אזור לחיפוש, ציון) ליינות שנשמרו לפני שהשדות האלה נוספו
+export async function enrichWine(wine, settings) {
+  const desc = {
+    producer: wine.producer, name: wine.name, vintage: wine.vintage, type: wine.type,
+    region: wine.region, country: wine.country, grapes: wine.grapes,
+  };
+  const text = await run(settings, {
+    system: ENRICH_SYSTEM,
+    messages: [{ role: 'user', content: JSON.stringify(desc) }],
+    effort: 'low',
+    fast: true,
+  });
+  const { country_code, country_he, region_he, appellation, appellation_en, search_tags, score } = extractJson(text);
+  return { country_code, country_he, region_he, appellation, appellation_en, search_tags, score };
+}
+
 function inventoryForPrompt(wines) {
   return wines
     .filter((w) => w.quantity > 0)
@@ -226,6 +255,8 @@ function inventoryForPrompt(wines) {
       price: w.price_high ? `${w.price_low}-${w.price_high} ${w.currency}` : null,
       drink: w.drink_from ? `${w.drink_from}-${w.drink_until} (שיא ${w.peak ?? '?'})` : null,
       notes: w.tasting_notes,
+      appellation: w.appellation_en || w.appellation || null,
+      critic_score: w.score ?? null,
       my_rating: w.rating || null,
     }));
 }
